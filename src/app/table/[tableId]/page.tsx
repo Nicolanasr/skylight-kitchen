@@ -27,6 +27,19 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
 
     const addToCart = (id: number) => {
         setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+        alert("Item added!");
+    };
+
+    const removeFromCart = (id: number) => {
+        setCart(prev => {
+            const updated = { ...prev };
+            if (updated[id] > 1) {
+                updated[id] -= 1; // decrease quantity
+            } else {
+                delete updated[id]; // remove if quantity is 1
+            }
+            return updated;
+        });
     };
 
     const submitOrder = async () => {
@@ -93,7 +106,12 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                 <h2 className="font-semibold text-lg">{item.name}</h2>
                                 {item.description && <p className="text-sm text-gray-600 mb-1">{item.description}</p>}
                                 <p className="font-bold mt-1">${item.price.toFixed(2)}</p>
-                                <button className="mt-2 px-3 py-1 bg-blue-500 text-white rounded" onClick={() => addToCart(item.id)}>Add</button>
+                                <button
+                                    className="mt-2 px-3 py-1 bg-blue-500 text-white rounded"
+                                    onClick={() => addToCart(item.id)}
+                                >
+                                    Add
+                                </button>
                             </div>
                         ))}
                     </div>
@@ -111,7 +129,12 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                             <h3 className="font-semibold text-lg">{item.name}</h3>
                                             {item.description && <p className="text-sm text-gray-600 mb-1">{item.description}</p>}
                                             <p className="font-bold mt-1">${item.price.toFixed(2)}</p>
-                                            <button className="mt-2 px-3 py-1 bg-blue-500 text-white rounded" onClick={() => addToCart(item.id)}>Add</button>
+                                            <button
+                                                className="mt-2 px-3 py-1 bg-blue-500 text-white rounded"
+                                                onClick={() => addToCart(item.id)}
+                                            >
+                                                Add
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
@@ -129,9 +152,17 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                 const item = menu.find(m => m.id === Number(id));
                                 if (!item) return null;
                                 return (
-                                    <li key={id} className="flex justify-between">
+                                    <li key={id} className="flex justify-between items-center">
                                         <span>{item.name} x {qty}</span>
-                                        <span>${(item.price * qty).toFixed(2)}</span>
+                                        <div className="flex items-center gap-2">
+                                            <span>${(item.price * qty).toFixed(2)}</span>
+                                            <button
+                                                onClick={() => removeFromCart(Number(id))}
+                                                className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
                                     </li>
                                 );
                             })}
