@@ -7,6 +7,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 export default function TablePage({ params }: { params: Promise<{ tableId: string }> }) {
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const { tableId } = React.use(params); // unwrap the promise
     const router = useRouter();
 
@@ -43,6 +44,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
     };
 
     const submitOrder = async () => {
+        setIsSubmitting(true);
         if (Object.keys(cart).length === 0) return;
 
         const orderItems = Object.entries(cart).map(([menu_item_id, quantity]) => ({
@@ -60,6 +62,8 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
         setCart({});
         setComment("");
         alert("Order submitted!");
+
+        setIsSubmitting(false);
     };
 
     return (
@@ -188,9 +192,10 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
 
                         <button
                             className="mt-3 w-full px-4 py-2 bg-green-500 text-white rounded"
+                            disabled={isSubmitting}
                             onClick={submitOrder}
                         >
-                            Submit Order
+                            {isSubmitting ? "submitting" : "Submit Order"}
                         </button>
                     </div>
                 )}
