@@ -19,4 +19,5 @@ export type Order = {
 	status: string;
 	order_items: OrderItem[];
 	comment: string;
+	created_at: string;
 };
