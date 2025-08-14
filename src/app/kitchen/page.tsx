@@ -111,7 +111,7 @@ export default function KitchenPage() {
                             <strong>Items:</strong>
                             <ul className="list-disc list-inside">
                                 {order.order_items?.map((item) => (
-                                    <li key={item.id}>
+                                    <li key={Math.random()}>
                                         {getMenuName(item.menu_item_id)} x {item.quantity}
                                     </li>
                                 ))}

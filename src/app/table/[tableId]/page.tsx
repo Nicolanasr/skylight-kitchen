@@ -10,7 +10,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
     const [menu, setMenu] = useState<MenuItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const [cart, setCart] = useState<{ [key: number]: number }>({});
-    const [comment, setComment] = useState<string>(""); // <-- comment state
+    const [comment, setComment] = useState<string>("");
 
     useEffect(() => {
         async function fetchMenu() {
@@ -21,34 +21,29 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
     }, []);
 
     const categories = Array.from(new Set(menu.map(item => item.category)));
-    const filteredMenu = selectedCategory ? menu.filter(item => item.category === selectedCategory) : menu;
 
     const addToCart = (id: number) => {
         setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
     };
 
     const submitOrder = async () => {
-        if (Object.keys(cart).length === 0) {
-            alert("Your cart is empty!");
-            return;
-        }
+        if (Object.keys(cart).length === 0) return;
 
         const orderItems = Object.entries(cart).map(([menu_item_id, quantity]) => ({
             menu_item_id: Number(menu_item_id),
             quantity,
         }));
 
-        const ordersub = await supabase.from("orders").insert([{
+        await supabase.from("orders").insert([{
             table_id: tableId,
             order_items: orderItems,
             status: "pending",
-            comment: comment || null, // save the comment
+            comment: comment || null,
         }]);
-        console.log(ordersub)
 
-        alert("Order submitted!");
         setCart({});
-        setComment(""); // reset comment
+        setComment("");
+        alert("Order submitted!");
     };
 
     return (
@@ -56,7 +51,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             <h1 className="text-2xl font-bold mb-4">Table {tableId}</h1>
 
             {/* Categories Filter */}
-            <div className="flex gap-2 mb-6 overflow-x-auto">
+            <div className="flex gap-2 mb-6 overflow-x-auto whitespace-nowrap">
                 <button
                     onClick={() => setSelectedCategory(null)}
                     className={`px-3 py-1 rounded ${selectedCategory === null ? "bg-blue-500 text-white" : "bg-gray-200"}`}
@@ -75,28 +70,42 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             </div>
 
             {/* Menu Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredMenu.map(item => (
-                    <div key={item.id} className="p-4 border rounded shadow flex flex-col">
-                        {item.image_url && (
-                            <img
-                                src={item.image_url}
-                                alt={item.name}
-                                className="w-full h-48 object-cover rounded mb-2"
-                            />
-                        )}
-                        <h2 className="font-semibold text-lg">{item.name}</h2>
-                        {item.description && <p className="text-sm text-gray-600 mb-1">{item.description}</p>}
-                        <p className="font-bold mt-1">${item.price.toFixed(2)}</p>
-                        <button
-                            className="mt-2 px-3 py-1 bg-blue-500 text-white rounded"
-                            onClick={() => addToCart(item.id)}
-                        >
-                            Add
-                        </button>
-                    </div>
-                ))}
-            </div>
+            {selectedCategory ? (
+                // Filtered single category
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {menu.filter(item => item.category === selectedCategory).map(item => (
+                        <div key={item.id} className="p-4 border rounded shadow flex flex-col">
+                            {item.image_url && <img src={item.image_url} alt={item.name} className="w-full h-48 object-cover rounded mb-2" />}
+                            <h2 className="font-semibold text-lg">{item.name}</h2>
+                            {item.description && <p className="text-sm text-gray-600 mb-1">{item.description}</p>}
+                            <p className="font-bold mt-1">${item.price.toFixed(2)}</p>
+                            <button className="mt-2 px-3 py-1 bg-blue-500 text-white rounded" onClick={() => addToCart(item.id)}>Add</button>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                // All categories: split by category
+                categories.map(cat => {
+                    const items = menu.filter(item => item.category === cat);
+                    if (items.length === 0) return null;
+                    return (
+                        <div key={cat} className="mb-6">
+                            <h2 className="text-xl font-bold mb-2">{cat}</h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {items.map(item => (
+                                    <div key={item.id} className="p-4 border rounded shadow flex flex-col">
+                                        {item.image_url && <img src={item.image_url} alt={item.name} className="w-full h-48 object-cover rounded mb-2" />}
+                                        <h3 className="font-semibold text-lg">{item.name}</h3>
+                                        {item.description && <p className="text-sm text-gray-600 mb-1">{item.description}</p>}
+                                        <p className="font-bold mt-1">${item.price.toFixed(2)}</p>
+                                        <button className="mt-2 px-3 py-1 bg-blue-500 text-white rounded" onClick={() => addToCart(item.id)}>Add</button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )
+                })
+            )}
 
             {/* Cart Summary */}
             {Object.keys(cart).length > 0 && (
