@@ -57,7 +57,7 @@ export default function KitchenPage() {
 
     // Convert UTC to Beirut time
     const formatDate = (utcDate: string) =>
-        new Date(utcDate).toLocaleString("en-US", { timeZone: "Asia/Beirut" });
+        new Date(`${utcDate}Z`).toLocaleString("en-US", { timeZone: "Asia/Beirut" });
 
     // Update order status
     const updateStatus = async (order: Order, nextStatus: string) => {
@@ -143,59 +143,82 @@ export default function KitchenPage() {
                                 )}
                             </div>
 
-                            {tableOrders.map((order) => (
-                                <div key={order.id} className="p-2 mb-2 border rounded bg-white">
-                                    <p><strong>Order ID:</strong> {order.id}</p>
-                                    <p><strong>Date:</strong> {formatDate(order.created_at)}</p>
-                                    <p><strong>Comment:</strong> {order.comment || "None"}</p>
-                                    <p><strong>Items:</strong></p>
-                                    <ul className="ml-4 list-disc">
-                                        {order.order_items?.map((item) => {
-                                            const menu = menuItems.find((m) => m.id === item.menu_item_id);
-                                            return (
-                                                <li key={item.menu_item_id}>
-                                                    {menu?.name || "Unknown"} x {item.quantity}
-                                                </li>
-                                            );
-                                        })}
-                                    </ul>
+                            {tableOrders.map((order) => {
+                                // Calculate minutes since order was created
+                                const now = new Date();
+                                const created = new Date(formatDate(order.created_at));
+                                const diffMinutes = Math.floor((now.getTime() - created.getTime()) / 60000); // ms → min
 
-                                    <div className="mt-2 flex gap-2">
-                                        {status === "pending" && (
-                                            <button
-                                                className="px-3 py-1 bg-yellow-400 rounded text-white"
-                                                onClick={() => updateStatus(order, "preparing")}
-                                            >
-                                                Make Preparing
-                                            </button>
-                                        )}
-                                        {status === "preparing" && (
-                                            <button
-                                                className="px-3 py-1 bg-blue-500 rounded text-white"
-                                                onClick={() => updateStatus(order, "ready to be served")}
-                                            >
-                                                Make Ready to Serve
-                                            </button>
-                                        )}
-                                        {status === "ready to be served" && (
-                                            <button
-                                                className="px-3 py-1 bg-orange-500 rounded text-white"
-                                                onClick={() => updateStatus(order, "served")}
-                                            >
-                                                Make Served
-                                            </button>
-                                        )}
-                                        {status === "served" && (
-                                            <button
-                                                className="px-3 py-1 bg-green-500 rounded text-white"
-                                                onClick={() => updateStatus(order, "paid")}
-                                            >
-                                                Make Paid
-                                            </button>
-                                        )}
+                                // Determine color
+                                let timeColor = "text-green-600"; // 0-10
+                                if (diffMinutes > 10 && diffMinutes <= 20) timeColor = "text-orange-500";
+                                else if (diffMinutes > 20) timeColor = "text-red-600";
+
+                                return (
+                                    <div key={order.id} className="p-2 mb-2 border rounded bg-white">
+                                        <p>
+                                            <strong>Order ID:</strong> {order.id}
+                                        </p>
+                                        <p>
+                                            <strong>Date:</strong> {formatDate(order.created_at)} —{" "}
+                                            <span className={timeColor}>
+                                                Ordered {diffMinutes} min ago
+                                            </span>
+                                        </p>
+                                        <p>
+                                            <strong>Comment:</strong> {order.comment || "None"}
+                                        </p>
+                                        <p>
+                                            <strong>Items:</strong>
+                                        </p>
+                                        <ul className="ml-4 list-disc">
+                                            {order.order_items?.map((item) => {
+                                                const menu = menuItems.find((m) => m.id === item.menu_item_id);
+                                                return (
+                                                    <li key={item.menu_item_id}>
+                                                        {menu?.name || "Unknown"} x {item.quantity}
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+
+                                        <div className="mt-2 flex gap-2">
+                                            {status === "pending" && (
+                                                <button
+                                                    className="px-3 py-1 bg-yellow-400 rounded text-white"
+                                                    onClick={() => updateStatus(order, "preparing")}
+                                                >
+                                                    Make Preparing
+                                                </button>
+                                            )}
+                                            {status === "preparing" && (
+                                                <button
+                                                    className="px-3 py-1 bg-blue-500 rounded text-white"
+                                                    onClick={() => updateStatus(order, "ready to be served")}
+                                                >
+                                                    Make Ready to Serve
+                                                </button>
+                                            )}
+                                            {status === "ready to be served" && (
+                                                <button
+                                                    className="px-3 py-1 bg-orange-500 rounded text-white"
+                                                    onClick={() => updateStatus(order, "served")}
+                                                >
+                                                    Make Served
+                                                </button>
+                                            )}
+                                            {status === "served" && (
+                                                <button
+                                                    className="px-3 py-1 bg-green-500 rounded text-white"
+                                                    onClick={() => updateStatus(order, "paid")}
+                                                >
+                                                    Make Paid
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     ))}
                 </div>
