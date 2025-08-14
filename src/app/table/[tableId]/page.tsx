@@ -54,11 +54,11 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             {/* Logo at the top */}
             <header className="flex items-center justify-center py-4 bg-white shadow sticky top-0 z-50">
                 <Image
-                    src="/logo.png" // replace with your logo path
+                    src="/Skylight-logo.png" // replace with your logo path
                     alt="Restaurant Logo"
                     width={150}
                     height={50}
-                    className="object-contain"
+                    className="object-contain invert-100"
                 />
             </header>
 
