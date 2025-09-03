@@ -210,7 +210,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                 onClick={() => setShowSummary(true)}
                 className="fixed bottom-6 right-6 bg-green-500 text-white px-4 py-3 rounded-full shadow-lg hover:bg-green-600 transition-colors z-50 "
             >
-                <TiShoppingCart className="text-2xl" />
+                <TiShoppingCart className="text-4xl" />
                 {totalItems > 0 && (
                     <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
                         {totalItems}
