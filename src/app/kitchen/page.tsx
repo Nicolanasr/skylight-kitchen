@@ -17,6 +17,7 @@ export default function KitchenPage() {
     const [receiptTotal, setReceiptTotal] = useState(0);
     const [receiptDiscount, setReceiptDiscount] = useState(0);
     const [receiptNamesForTable, setReceiptNamesForTable] = useState<string[]>([]);
+    const [receiptPaperWidth, setReceiptPaperWidth] = useState<'80mm' | '57mm' | '3.125in'>('80mm');
     // Paid modal state
     const [isPayModalOpen, setIsPayModalOpen] = useState(false);
     const [payTableId, setPayTableId] = useState<string | null>(null);
@@ -264,20 +265,22 @@ export default function KitchenPage() {
 
         const html = `<!doctype html><html><head><meta charset="utf-8"/><title>${title}</title>
         <style>
-            @page { size: 80mm auto; margin: 5mm; }
+            @page { size: ${receiptPaperWidth} auto; margin: 5mm; }
             * { box-sizing: border-box; }
-            body { width: 70mm; margin: 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+            body { width: calc(${receiptPaperWidth} - 10mm); margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+            .wrap { padding: 2mm; }
             .center { text-align: center; }
             .muted { color: #333; }
             .line { border-top: 1px dashed #000; margin: 6px 0; }
             .row { display: flex; align-items: baseline; }
             .row .name { flex: 1 1 auto; padding-right: 6px; }
-            .row .qty { flex: 0 0 auto; width: 40px; text-align: right; }
-            .row .amt { flex: 0 0 auto; width: 60px; text-align: right; }
+            .row .qty { flex: 0 0 auto; width: 80px; text-align: right; padding-right: 8px; }
+            .row .amt { flex: 0 0 auto; width: 90px; text-align: right; }
             .total { font-weight: 700; }
             h1 { font-size: 14px; margin: 0 0 6px; }
             .meta { font-size: 11px; margin-bottom: 6px; }
         </style></head><body>
+            <div class="wrap">
             <div class="center">
                 <h1>Receipt</h1>
                 <div class="meta muted">${new Date().toLocaleString()}</div>
@@ -286,9 +289,10 @@ export default function KitchenPage() {
             <div class="line"></div>
             ${rowsHtml || `<div class='muted'>No items</div>`}
             <div class="line"></div>
-            <div class="row"><div class="name"></div><div class="qty">SubTotal</div><div class="amt">$${subtotal.toFixed(2)}</div></div>
+            <div class="row"><div class="name"></div><div class="qty">Subtotal</div><div class="amt">$${subtotal.toFixed(2)}</div></div>
             <div class="row"><div class="name"></div><div class="qty">Discount</div><div class="amt">-$${receiptDiscount.toFixed(2)}</div></div>
             <div class="row total"><div class="name"></div><div class="qty">Total</div><div class="amt">$${receiptTotal.toFixed(2)}</div></div>
+            </div>
         </body></html>`;
 
         const w = window.open("", "PRINT", "height=600,width=420");
@@ -523,8 +527,23 @@ export default function KitchenPage() {
 
                         {receiptItems.length > 0 ? (
                             <div>
+                                <div className="mb-2 flex items-center gap-2">
+                                    <label className="text-xs text-gray-600">Paper width</label>
+                                    <select
+                                        className="border rounded p-1 text-xs"
+                                        value={receiptPaperWidth}
+                                        onChange={(e) => setReceiptPaperWidth(e.target.value as '80mm' | '57mm' | '3.125in')}
+                                    >
+                                        <option value="80mm">80mm</option>
+                                        <option value="57mm">57mm</option>
+                                        <option value="3.125in">3-1/8 in</option>
+                                    </select>
+                                </div>
                                 {/* Receipt preview in thermal format */}
-                                <div className="font-mono w-full max-w-[320px] mx-auto text-sm">
+                                <div
+                                    className="font-mono text-sm p-2"
+                                    style={{ width: `calc(${receiptPaperWidth} - 10mm)` }}
+                                >
                                     <div className="text-center font-semibold">Receipt</div>
                                     <div className="text-center text-xs text-gray-600">{new Date().toLocaleString()}</div>
                                     <div className="text-center text-xs">

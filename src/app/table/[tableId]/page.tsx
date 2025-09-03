@@ -164,20 +164,45 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                 </div>
 
                 {/* Menu Grid */}
-                {(selectedCategory ? menu.filter(item => item.category === selectedCategory) : menu).map(item => (
-                    item.category !== null && <div key={item.id} className="p-4 border rounded shadow flex flex-col mb-4">
-                        {item.image_url && <img src={item.image_url} alt={item.name} className="w-full h-48 object-cover rounded mb-2" />}
-                        <h2 className="font-semibold text-lg">{item.name}</h2>
-                        {item.description && <p className="text-sm text-gray-600 mb-1">{item.description}</p>}
-                        <p className="font-bold mt-1">${item.price.toFixed(2)}</p>
-                        <button
-                            className="mt-2 px-3 py-1 bg-blue-500 text-white rounded"
-                            onClick={() => addToCart(item.id)}
-                        >
-                            Add
-                        </button>
-                    </div>
-                ))}
+                {(selectedCategory ? menu.filter(item => item.category === selectedCategory) : menu).map(item => {
+                    const qty = cart[item.id] || 0;
+                    if (item.category === null) return null;
+                    return (
+                        <div key={item.id} className="p-4 border rounded shadow flex flex-col mb-4">
+                            {item.image_url && <img src={item.image_url} alt={item.name} className="w-full h-48 object-cover rounded mb-2" />}
+                            <h2 className="font-semibold text-lg">{item.name}</h2>
+                            {item.description && <p className="text-sm text-gray-600 mb-1">{item.description}</p>}
+                            <p className="font-bold mt-1">${item.price.toFixed(2)}</p>
+
+                            {qty === 0 ? (
+                                <button
+                                    className="mt-2 px-3 py-1 bg-blue-500 text-white rounded"
+                                    onClick={() => addToCart(item.id)}
+                                >
+                                    Add
+                                </button>
+                            ) : (
+                                <div className="mt-3 inline-flex items-center gap-3">
+                                    <button
+                                        className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                                        onClick={() => removeFromCart(item.id)}
+                                        aria-label={`Decrease ${item.name}`}
+                                    >
+                                        -
+                                    </button>
+                                    <span className="min-w-[2ch] text-center font-medium">{qty}</span>
+                                    <button
+                                        className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                                        onClick={() => addToCart(item.id)}
+                                        aria-label={`Increase ${item.name}`}
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
             </main>
 
             {/* Floating Order Summary Button */}
