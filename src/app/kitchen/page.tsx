@@ -293,6 +293,7 @@ export default function KitchenPage() {
             <div class="row"><div class="name"></div><div class="qty">Discount</div><div class="amt">-$${receiptDiscount.toFixed(2)}</div></div>
             <div class="row total"><div class="name"></div><div class="qty">Total</div><div class="amt">$${receiptTotal.toFixed(2)}</div></div>
             </div>
+            <div style="text-align:center;">skylightvillage.com</div>
         </body></html>`;
 
         const w = window.open("", "PRINT", "height=600,width=420");
