@@ -28,8 +28,8 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
     const [cart, setCart] = useState<{ [key: number]: number }>({});
     const [comment, setComment] = useState<string>("");
     const [showSummary, setShowSummary] = useState<boolean>(false);
-    const [orders, setOrders] = useState<Order[]>([]);
     const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+    const [showNameDropdown, setShowNameDropdown] = useState(false);
 
     // Add at the top of the component
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,19 +84,6 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
         fetchMenu();
     }, []);
 
-    // Fetch orders for this table
-    const fetchOrders = async () => {
-        const { data } = await supabase
-            .from("orders")
-            .select("*")
-            .eq("table_id", tableId)
-            .order("created_at", { ascending: true });
-        setOrders(data || []);
-    };
-
-    useEffect(() => {
-        fetchOrders();
-    }, []);
 
     const categories = Array.from(new Set(menu.map(item => item.category)));
 
@@ -143,6 +130,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             alert('Order submitted!');
         }
 
+        setShowSummary(false)
         setIsSubmitting(false);
     };
 
@@ -213,10 +201,9 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             </button>
 
             {/* Modal / Popup for Order Summary */}
-            {/* Modal / Popup for Order Summary */}
             {showSummary && (
                 <div className="fixed inset-0 bg-[#000000ab] flex items-center justify-center z-50">
-                    <div className="bg-white p-6 rounded shadow-lg w-11/12 md:w-2/3 max-h-[80vh] overflow-y-auto">
+                    <div className="bg-white p-6 rounded shadow-lg w-11/12 md:w-2/3 max-h-[80vh] overflow-y-auto relative">
                         <h3 className="font-semibold text-xl mb-4">Order Summary</h3>
 
                         {/* Tabs */}
@@ -234,6 +221,13 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                 My Orders
                             </button>
                         </div>
+
+                        <button
+                            onClick={() => setShowSummary(false)}
+                            className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 absolute top-0 right-0 z-10"
+                        >
+                            X
+                        </button>
 
                         {/* Tab Content */}
                         {activeTab === 'cart' && (
@@ -263,32 +257,49 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                     </ul>
                                 )}
 
-                                <div className="mb-4 mt-8">
+                                <div className="mb-4 relative mt-6">
                                     <label className="block font-medium mb-1">Name (optional)</label>
                                     <input
-                                        list="previousNames"
+                                        type="text"
                                         value={orderName}
-                                        onChange={(e) => setOrderName(e.target.value)}
+                                        onChange={(e) => {
+                                            setOrderName(e.target.value);
+                                            setShowNameDropdown(true);
+                                        }}
+                                        onFocus={() => setShowNameDropdown(true)}
+                                        onBlur={() => setTimeout(() => setShowNameDropdown(false), 200)} // delay to allow click
                                         className="w-full border rounded p-2"
                                         placeholder="Type a name or select from previous"
                                     />
-                                    {previousNames.length > 0 && (
-                                        <datalist id="previousNames">
-                                            {previousNames.map((n, idx) => (
-                                                <option key={idx} value={n} />
-                                            ))}
-                                        </datalist>
+
+                                    {/* Dropdown list */}
+                                    {showNameDropdown && previousNames.length > 0 && (
+                                        <ul className="absolute z-50 w-full bg-white border rounded shadow mt-1 max-h-40 overflow-y-auto">
+                                            {previousNames
+                                                .filter((n) => n.toLowerCase().includes(orderName.toLowerCase()))
+                                                .map((n, idx) => (
+                                                    <li
+                                                        key={idx}
+                                                        onClick={() => {
+                                                            setOrderName(n);
+                                                            setShowNameDropdown(false);
+                                                        }}
+                                                        className="px-2 py-1 hover:bg-blue-100 cursor-pointer"
+                                                    >
+                                                        {n}
+                                                    </li>
+                                                ))}
+                                        </ul>
                                     )}
                                 </div>
 
                                 <div className="mt-4">
                                     <label className="block mb-1 font-medium">Add a comment (optional):</label>
-                                    <textarea
+                                    <input
                                         className="w-full border rounded p-2"
                                         value={comment}
                                         onChange={(e) => setComment(e.target.value)}
                                         placeholder="E.g., No onions, extra spicy..."
-                                        rows={3}
                                     />
                                 </div>
 
@@ -300,12 +311,6 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                 </p>
 
                                 <div className="mt-4 flex gap-2 justify-end">
-                                    <button
-                                        onClick={() => setShowSummary(false)}
-                                        className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
-                                    >
-                                        Close
-                                    </button>
                                     <button
                                         onClick={submitOrder}
                                         className={`px-4 py-2 ${isSubmitting ? "bg-green-100" : "bg-green-500"} text-white rounded hover:bg-green-600`}
