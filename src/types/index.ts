@@ -18,7 +18,7 @@ export type Order = {
 	table_id: string;
 	name?: string | null;
 	order_items: OrderItem[];
-	status: "pending" | "completed" | "canceled";
+	status: string;
 	comment?: string | null;
 	created_at: string;
 };

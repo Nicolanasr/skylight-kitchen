@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 'use client';
 
 import React, { useEffect, useState } from "react";
@@ -10,15 +11,6 @@ type OrderItem = {
     menu_item_id: number;
     quantity: number;
 };
-
-interface Order {
-    id: number;
-    table_id: string;
-    order_items: OrderItem[];
-    status: string;
-    comment?: string | null;
-    created_at: string;
-}
 
 export default function TablePage({ params }: { params: Promise<{ tableId: string }> }) {
     const { tableId } = React.use(params);
@@ -52,7 +44,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
         }
 
         if (showSummary) fetchPreviousNames();
-    }, [showSummary]);
+    }, [showSummary, tableId]);
 
     // Fetch today's orders
     useEffect(() => {
@@ -73,7 +65,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
         }
 
         fetchTodayOrders();
-    }, [showSummary]);
+    }, [showSummary, tableId]);
 
     // Fetch menu
     useEffect(() => {
@@ -337,7 +329,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                             </div>
 
                                             <ul className="mb-2">
-                                                {order.order_items.map((oi: OrderItem, idx: number) => {
+                                                {order.order_items.map((oi: OrderItem) => {
                                                     const item = menu.find(m => m.id === oi.menu_item_id);
                                                     if (!item) return null;
                                                     return (
