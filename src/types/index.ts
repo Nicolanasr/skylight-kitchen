@@ -20,5 +20,7 @@ export type Order = {
 	order_items: OrderItem[];
 	status: string;
 	comment?: string | null;
+	disc_amt?: number | null;
+	disc_pct?: number | null;
 	created_at: string;
 };

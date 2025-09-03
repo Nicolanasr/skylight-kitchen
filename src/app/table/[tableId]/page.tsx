@@ -122,6 +122,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             alert('Order submitted!');
         }
 
+        setActiveTab("cart")
         setShowSummary(false)
         setIsSubmitting(false);
     };
@@ -152,7 +153,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                         All
                     </button>
                     {categories.map(cat => (
-                        <button
+                        cat !== null && <button
                             key={cat}
                             onClick={() => setSelectedCategory(cat)}
                             className={`px-3 py-1 rounded ${selectedCategory === cat ? "bg-blue-500 text-white" : "bg-gray-200"}`}
@@ -164,7 +165,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
 
                 {/* Menu Grid */}
                 {(selectedCategory ? menu.filter(item => item.category === selectedCategory) : menu).map(item => (
-                    <div key={item.id} className="p-4 border rounded shadow flex flex-col mb-4">
+                    item.category !== null && <div key={item.id} className="p-4 border rounded shadow flex flex-col mb-4">
                         {item.image_url && <img src={item.image_url} alt={item.name} className="w-full h-48 object-cover rounded mb-2" />}
                         <h2 className="font-semibold text-lg">{item.name}</h2>
                         {item.description && <p className="text-sm text-gray-600 mb-1">{item.description}</p>}
@@ -255,7 +256,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                         type="text"
                                         value={orderName}
                                         onChange={(e) => {
-                                            setOrderName(e.target.value);
+                                            setOrderName(e.target.value.toLowerCase());
                                             setShowNameDropdown(true);
                                         }}
                                         onFocus={() => setShowNameDropdown(true)}
@@ -350,27 +351,6 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
 
                                             {order.comment && <p className="italic text-gray-500">Comment: {order.comment}</p>}
 
-                                            {order.status === 'pending' && (
-                                                <button
-                                                    onClick={async () => {
-                                                        // Cancel order in Supabase
-                                                        const { error } = await supabase
-                                                            .from('orders')
-                                                            .update({ status: 'canceled' })
-                                                            .eq('id', order.id);
-
-                                                        if (error) {
-                                                            alert('Error canceling order: ' + error.message);
-                                                        } else {
-                                                            // Refresh todayOrders
-                                                            setTodayOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'canceled' } : o));
-                                                        }
-                                                    }}
-                                                    className="mt-2 px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                                                >
-                                                    Cancel Order
-                                                </button>
-                                            )}
                                         </div>
                                     ))
                                 )}
