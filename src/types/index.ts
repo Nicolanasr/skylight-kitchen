@@ -16,8 +16,9 @@ export type OrderItem = {
 export type Order = {
 	id: number;
 	table_id: string;
-	status: string;
+	name?: string | null;
 	order_items: OrderItem[];
-	comment: string;
+	status: "pending" | "completed" | "canceled";
+	comment?: string | null;
 	created_at: string;
 };
