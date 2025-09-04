@@ -7,6 +7,7 @@ import { Order, OrderItem, MenuItem } from "@/types";
 export default function KitchenPage() {
     const [orders, setOrders] = useState<Order[]>([]);
     const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+    const [searchQuery, setSearchQuery] = useState("");
     const [isReceiptOpen, setIsReceiptOpen] = useState(false);
     const [receiptScope, setReceiptScope] = useState<"table" | "name" | null>(null);
     const [receiptTableId, setReceiptTableId] = useState<string | null>(null);
@@ -26,6 +27,9 @@ export default function KitchenPage() {
     const [paySelectAll, setPaySelectAll] = useState<boolean>(true);
     // Collapsible paid tables
     const [paidExpanded, setPaidExpanded] = useState<Record<string, boolean>>({});
+    // Collapsible groups: by customer name and by order
+    const [expandedNames, setExpandedNames] = useState<Record<string, boolean>>({});
+    const [expandedOrders, setExpandedOrders] = useState<Record<number, boolean>>({});
 
     // Edit order modal state
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -315,11 +319,39 @@ export default function KitchenPage() {
     // Define status order
     const statuses = ["pending", "preparing", "ready to be served", "served", "paid", "canceled"];
 
+    // Search filtering: by item name, customer name, or table number
+    const menuNameById = new Map(menuItems.map((m) => [m.id, m.name.toLowerCase()]));
+    const q = searchQuery.trim().toLowerCase();
+    const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&");
+    const highlightItemName = (text: string) => {
+        if (!q) return text;
+        const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, "ig"));
+        return parts.map((part, idx) =>
+            idx % 2 === 1 ? (
+                <mark key={idx} className="bg-yellow-200 px-0.5 rounded">
+                    {part}
+                </mark>
+            ) : (
+                <span key={idx}>{part}</span>
+            )
+        );
+    };
+    const filteredOrders = q
+        ? orders.filter((order) => {
+              const tableMatch = order.table_id.toLowerCase().includes(q);
+              const nameMatch = (order.name || "").toLowerCase().includes(q);
+              const itemMatch = (order.order_items || []).some((it) =>
+                  (menuNameById.get(it.menu_item_id) || "").includes(q)
+              );
+              return tableMatch || nameMatch || itemMatch;
+          })
+        : orders;
+
     // Group orders by status → table → name
     const ordersByStatusTableName: Record<string, Record<string, Record<string, Order[]>>> = {};
     statuses.forEach((status) => (ordersByStatusTableName[status] = {}));
 
-    orders.forEach((order) => {
+    filteredOrders.forEach((order) => {
         const tableKey = order.table_id;
         const nameKey = order.name && order.name.trim() ? order.name.trim() : "Unknown";
         if (!ordersByStatusTableName[order.status][tableKey]) {
@@ -334,6 +366,22 @@ export default function KitchenPage() {
     return (
         <div className="p-4 max-w-6xl mx-auto">
             <h1 className="text-2xl font-bold mb-4">Kitchen Orders</h1>
+            <div className="mb-4 flex items-center gap-2">
+                <input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full max-w-md border rounded px-3 py-2"
+                    placeholder="Search items, name, or table #"
+                />
+                {searchQuery && (
+                    <button
+                        className="px-3 py-2 bg-gray-200 rounded"
+                        onClick={() => setSearchQuery("")}
+                    >
+                        Clear
+                    </button>
+                )}
+            </div>
 
             {statuses.map((status) => (
                 <div key={status} className="mb-6">
@@ -349,7 +397,7 @@ export default function KitchenPage() {
                                 <div className="flex justify-between items-center mb-2">
                                     <h3 className="font-semibold">Table {tableId}</h3>
                                     {/* Show Receipt button only if there are served orders */}
-                                    {status == "served" && orders.some((o) => o.table_id === tableId && o.status === "served") && (
+                                    {status == "served" && filteredOrders.some((o) => o.table_id === tableId && o.status === "served") && (
                                         <div className="flex gap-2">
                                             <button
                                                 className="px-3 py-1 bg-gray-600 rounded text-white"
@@ -375,100 +423,221 @@ export default function KitchenPage() {
 
                                 {(() => {
                                     const expKey = `${status}:${tableId}`;
-                                    const list = (
+                                    const list =
                                         Object.entries(namesMap)
                                             .sort(([a], [b]) => a.localeCompare(b))
-                                            .map(([name, nameOrders]) => (
-                                                <div key={name} className="mb-3">
-                                                    <h4 className="font-medium mb-2">Name: {name}</h4>
-                                                    {nameOrders.map((order) => {
-                                                        // Calculate minutes since order was created
-                                                        const now = new Date();
-                                                        const created = new Date(formatDate(order.created_at));
-                                                        const diffMinutes = Math.floor((now.getTime() - created.getTime()) / 60000);
+                                            .map(([name, nameOrders]) => {
+                                                const nameKey = `${status}:${tableId}:${name}`;
+                                                const isNameOpen = expandedNames[nameKey] !== false;
+                                                // Build combined items for collapsed name view
+                                                const combined: Record<number, { itemName: string; qty: number }> = {};
+                                                nameOrders.forEach((o) =>
+                                                    o.order_items?.forEach((it) => {
+                                                        const m = menuItems.find((mm) => mm.id === it.menu_item_id);
+                                                        const itemName = m?.name || 'Unknown';
+                                                        if (!combined[it.menu_item_id]) combined[it.menu_item_id] = { itemName, qty: 0 };
+                                                        combined[it.menu_item_id].qty += it.quantity;
+                                                    })
+                                                );
+                                                return (
+                                                    <div key={name} className="mb-3">
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <h4 className="font-medium">Name: {name}</h4>
+                                                            <button
+                                                                className="px-2 py-1 bg-gray-200 rounded"
+                                                                onClick={() =>
+                                                                    setExpandedNames((prev) => ({
+                                                                        ...prev,
+                                                                        [nameKey]: !isNameOpen,
+                                                                    }))
+                                                                }
+                                                            >
+                                                                {isNameOpen ? 'Hide Details' : 'Show Details'}
+                                                            </button>
+                                                        </div>
+                                                        {!isNameOpen && (
+                                                            <ul className="ml-4 list-disc">
+                                                                {Object.values(combined)
+                                                                    .sort((a, b) => a.itemName.localeCompare(b.itemName))
+                                                                    .map((row, idx) => (
+                                                                        <li key={idx}>
+                                                                            <span className="mr-1">{highlightItemName(row.itemName)}</span>
+                                                                            x {row.qty}
+                                                                        </li>
+                                                                    ))}
+                                                            </ul>
+                                                        )}
+                                                        {isNameOpen && (
+                                                            <>
+                                                                {nameOrders.map((order) => {
+                                                                    const ordOpen = !!expandedOrders[order.id];
+                                                                    // Calculate minutes since order was created
+                                                                    const now = new Date();
+                                                                    const created = new Date(formatDate(order.created_at));
+                                                                    const diffMinutes = Math.floor((now.getTime() - created.getTime()) / 60000);
 
-                                                        // Determine color
-                                                        let timeColor = "text-green-600"; // 0-10
-                                                        if (diffMinutes > 10 && diffMinutes <= 20) timeColor = "text-orange-500";
-                                                        else if (diffMinutes > 20) timeColor = "text-red-600";
+                                                                    // Determine color
+                                                                    let timeColor = 'text-green-600'; // 0-10
+                                                                    if (diffMinutes > 10 && diffMinutes <= 20) timeColor = 'text-orange-500';
+                                                                    else if (diffMinutes > 20) timeColor = 'text-red-600';
 
-                                                        return (
-                                                            <div key={order.id} className="p-2 mb-2 border rounded bg-white">
-                                                                <p><strong>Order ID:</strong> {order.id}</p>
-                                                                <p><strong>Table:</strong> {order.table_id}</p>
-                                                                <p><strong>Name:</strong> {order.name || "Unknown"}</p>
-                                                                <p>
-                                                                    <strong>Date:</strong> {formatDate(order.created_at)} —{" "}
-                                                                    <span className={timeColor}>Ordered {diffMinutes} min ago</span>
-                                                                </p>
-                                                                <p><strong>Comment:</strong> {order.comment || "None"}</p>
-                                                                <p><strong>Items:</strong></p>
-                                                                <ul className="ml-4 list-disc">
-                                                                    {order.order_items?.map((item) => {
-                                                                        const menu = menuItems.find((m) => m.id === item.menu_item_id);
-                                                                        const unit = menu?.price || 0;
-                                                                        const line = unit * item.quantity;
-                                                                        return (
-                                                                            <li key={item.menu_item_id}>
-                                                                                {menu?.name || "Unknown"} x {item.quantity} — ${line.toFixed(2)}
-                                                                            </li>
-                                                                        );
-                                                                    })}
-                                                                </ul>
-                                                                {(() => {
-                                                                    const subtotal = getOrderSubtotal(order);
-                                                                    const discount = getOrderDiscount(order, subtotal);
-                                                                    const total = Math.max(0, subtotal - discount);
                                                                     return (
-                                                                        <div className="mt-2 text-sm ml-4">
-                                                                            <div>Subtotal: ${subtotal.toFixed(2)}</div>
-                                                                            {discount > 0 && <div>Discount: -${discount.toFixed(2)}</div>}
-                                                                            <div className="font-semibold">Total: ${total.toFixed(2)}</div>
+                                                                        <div key={order.id} className="p-2 mb-2 border rounded bg-white">
+                                                                            <div className="flex justify-between items-center">
+                                                                                <p className="m-0"><strong>Order ID:</strong> {order.id}</p>
+                                                                                <button
+                                                                                    className="px-2 py-1 bg-gray-100 rounded"
+                                                                                    onClick={() =>
+                                                                                        setExpandedOrders((prev) => ({
+                                                                                            ...prev,
+                                                                                            [order.id]: !ordOpen,
+                                                                                        }))
+                                                                                    }
+                                                                                >
+                                                                                    {ordOpen ? 'Hide Details' : 'Show Details'}
+                                                                                </button>
+                                                                            </div>
+                                                                            {!ordOpen && (
+                                                                            <>
+                                                                            <ul className="ml-4 list-disc mt-2">
+                                                                                    {order.order_items?.map((item) => {
+                                                                                        const menu = menuItems.find((m) => m.id === item.menu_item_id);
+                                                                                        const unit = menu?.price || 0;
+                                                                                        const line = unit * item.quantity;
+                                                                                        return (
+                                                                                            <li key={item.menu_item_id}>
+                                                                                                <span className="mr-1">{highlightItemName(menu?.name || 'Unknown')}</span>
+                                                                                                x {item.quantity} — ${line.toFixed(2)}
+                                                                                            </li>
+                                                                                        );
+                                                                                    })}
+                                                                                </ul>
+                                                                                <div className="mt-2 flex gap-2 flex-wrap">
+                                                                                    {status !== 'paid' && (
+                                                                                        <button
+                                                                                            className="px-3 py-1 bg-purple-600 rounded text-white"
+                                                                                            onClick={() => {
+                                                                                                setEditOrder(order);
+                                                                                                setEditItems(order.order_items ? [...order.order_items] : []);
+                                                                                                setEditName(order.name || '');
+                                                                                                setEditComment(order.comment || '');
+                                                                                                setEditDiscAmount(order.disc_amt || 0);
+                                                                                                setEditDiscPercent(order.disc_pct || 0);
+                                                                                                setAddItemId(null);
+                                                                                                setAddQty(1);
+                                                                                                setIsEditOpen(true);
+                                                                                            }}
+                                                                                        >
+                                                                                            Edit
+                                                                                        </button>
+                                                                                    )}
+                                                                                    {status === 'pending' && (
+                                                                                        <button className="px-3 py-1 bg-yellow-400 rounded text-white" onClick={() => updateStatus(order, 'preparing')}>
+                                                                                            Make Preparing
+                                                                                        </button>
+                                                                                    )}
+                                                                                    {status === 'preparing' && (
+                                                                                        <button className="px-3 py-1 bg-blue-500 rounded text-white" onClick={() => updateStatus(order, 'ready to be served')}>
+                                                                                            Make Ready to Serve
+                                                                                        </button>
+                                                                                    )}
+                                                                                    {status === 'ready to be served' && (
+                                                                                        <button className="px-3 py-1 bg-orange-500 rounded text-white" onClick={() => updateStatus(order, 'served')}>
+                                                                                            Make Served
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                                </>
+                                                                            )}
+                                                                            {ordOpen && (
+                                                                                <>
+                                                                                    <p>
+                                                                                        <strong>Table:</strong> {order.table_id}
+                                                                                    </p>
+                                                                                    <p>
+                                                                                        <strong>Name:</strong> {order.name || 'Unknown'}
+                                                                                    </p>
+                                                                                    <p>
+                                                                                        <strong>Date:</strong> {formatDate(order.created_at)} —{' '}
+                                                                                        <span className={timeColor}>Ordered {diffMinutes} min ago</span>
+                                                                                    </p>
+                                                                                    <p>
+                                                                                        <strong>Comment:</strong> {order.comment || 'None'}
+                                                                                    </p>
+                                                                                    <p>
+                                                                                        <strong>Items:</strong>
+                                                                                    </p>
+                                                                                    <ul className="ml-4 list-disc">
+                                                                                        {order.order_items?.map((item) => {
+                                                                                            const menu = menuItems.find((m) => m.id === item.menu_item_id);
+                                                                                            const unit = menu?.price || 0;
+                                                                                            const line = unit * item.quantity;
+                                                                                            return (
+                                                                                                <li key={item.menu_item_id}>
+                                                                                                    <span className="mr-1">{highlightItemName(menu?.name || 'Unknown')}</span>
+                                                                                                    x {item.quantity} — ${line.toFixed(2)}
+                                                                                                </li>
+                                                                                            );
+                                                                                        })}
+                                                                                    </ul>
+                                                                                    {(() => {
+                                                                                        const subtotal = getOrderSubtotal(order);
+                                                                                        const discount = getOrderDiscount(order, subtotal);
+                                                                                        const total = Math.max(0, subtotal - discount);
+                                                                                        return (
+                                                                                            <div className="mt-2 text-sm ml-4">
+                                                                                                <div>Subtotal: ${subtotal.toFixed(2)}</div>
+                                                                                                {discount > 0 && <div>Discount: -${discount.toFixed(2)}</div>}
+                                                                                                <div className="font-semibold">Total: ${total.toFixed(2)}</div>
+                                                                                            </div>
+                                                                                        );
+                                                                                    })()}
+
+                                                                                    <div className="mt-2 flex gap-2 flex-wrap">
+                                                                                        {status !== 'paid' && (
+                                                                                            <button
+                                                                                                className="px-3 py-1 bg-purple-600 rounded text-white"
+                                                                                                onClick={() => {
+                                                                                                    setEditOrder(order);
+                                                                                                    setEditItems(order.order_items ? [...order.order_items] : []);
+                                                                                                    setEditName(order.name || '');
+                                                                                                    setEditComment(order.comment || '');
+                                                                                                    setEditDiscAmount(order.disc_amt || 0);
+                                                                                                    setEditDiscPercent(order.disc_pct || 0);
+                                                                                                    setAddItemId(null);
+                                                                                                    setAddQty(1);
+                                                                                                    setIsEditOpen(true);
+                                                                                                }}
+                                                                                            >
+                                                                                                Edit
+                                                                                            </button>
+                                                                                        )}
+                                                                                        {status === 'pending' && (
+                                                                                            <button className="px-3 py-1 bg-yellow-400 rounded text-white" onClick={() => updateStatus(order, 'preparing')}>
+                                                                                                Make Preparing
+                                                                                            </button>
+                                                                                        )}
+                                                                                        {status === 'preparing' && (
+                                                                                            <button className="px-3 py-1 bg-blue-500 rounded text-white" onClick={() => updateStatus(order, 'ready to be served')}>
+                                                                                                Make Ready to Serve
+                                                                                            </button>
+                                                                                        )}
+                                                                                        {status === 'ready to be served' && (
+                                                                                            <button className="px-3 py-1 bg-orange-500 rounded text-white" onClick={() => updateStatus(order, 'served')}>
+                                                                                                Make Served
+                                                                                            </button>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </>
+                                                                            )}
                                                                         </div>
                                                                     );
-                                                                })()}
-
-                                                                <div className="mt-2 flex gap-2 flex-wrap">
-                                                                    {status !== "paid" && (
-                                                                        <button
-                                                                            className="px-3 py-1 bg-purple-600 rounded text-white"
-                                                                            onClick={() => {
-                                                                                setEditOrder(order);
-                                                                                setEditItems(order.order_items ? [...order.order_items] : []);
-                                                                                setEditName(order.name || "");
-                                                                                setEditComment(order.comment || "");
-                                                                                setEditDiscAmount(order.disc_amt || 0);
-                                                                                setEditDiscPercent(order.disc_pct || 0);
-                                                                                setAddItemId(null);
-                                                                                setAddQty(1);
-                                                                                setIsEditOpen(true);
-                                                                            }}
-                                                                        >
-                                                                            Edit
-                                                                        </button>
-                                                                    )}
-                                                                    {status === "pending" && (
-                                                                        <button className="px-3 py-1 bg-yellow-400 rounded text-white" onClick={() => updateStatus(order, "preparing")}>
-                                                                            Make Preparing
-                                                                        </button>
-                                                                    )}
-                                                                    {status === "preparing" && (
-                                                                        <button className="px-3 py-1 bg-blue-500 rounded text-white" onClick={() => updateStatus(order, "ready to be served")}>
-                                                                            Make Ready to Serve
-                                                                        </button>
-                                                                    )}
-                                                                    {status === "ready to be served" && (
-                                                                        <button className="px-3 py-1 bg-orange-500 rounded text-white" onClick={() => updateStatus(order, "served")}>
-                                                                            Make Served
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ))
-                                    );
+                                                                })}
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                );
+                                            });
 
                                     if (status === "paid" || status === "served") {
                                         return (
@@ -560,7 +729,7 @@ export default function KitchenPage() {
                                     <div className="border-t border-dashed my-2"></div>
                                     {receiptItems.map((it, idx) => (
                                         <div key={idx} className="flex items-baseline">
-                                            <div className="flex-1 pr-2">{it.itemName}</div>
+                                            <div className="flex-1 pr-2">{highlightItemName(it.itemName)}</div>
                                             <div className="w-12 text-right">x {it.quantity}</div>
                                             <div className="w-16 text-right">{`$${it.lineTotal.toFixed(2)}`}</div>
                                         </div>
