@@ -528,7 +528,7 @@ export default function KitchenPage() {
 
     if (orgLoading) return <div className="p-4">Loading…</div>;
     if (!organizationId) return <div className="p-4">No organization found for “{slug}”.</div>;
-    if (isMember === false) return <div className="p-4">You don’t have access to organization “{slug}”. Ask an owner/manager to add you.</div>;
+    if (isMember === false) return <div className="p-4">You don’t have access to organization “{slug}”. Ask an owner/ manager to add you.</div>;
 
     return (
         <div className="p-4 max-w-6xl mx-auto">
