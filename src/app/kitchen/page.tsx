@@ -2,7 +2,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { useOrganization } from "@/components/useOrganization";
+// import { orgFilter } from "@/lib/org-scope";
 import { Order, OrderItem, MenuItem } from "@/types";
 import ReceiptModal from "@/components/kitchen/ReceiptModal";
 import EditOrderModal from "@/components/kitchen/EditOrderModal";
@@ -15,6 +18,7 @@ import ToastContainer, { Toast } from "@/components/kitchen/ToastContainer";
 import NotificationBell from "@/components/kitchen/NotificationBell";
 
 export default function KitchenPage() {
+    const { organizationId, loading: orgLoading, slug, isMember } = useOrganization();
     const nowTs = useNowTick(60000);
     const [orders, setOrders] = useState<Order[]>([]);
     const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -69,12 +73,13 @@ export default function KitchenPage() {
 
     // Fetch menu items for names
     useEffect(() => {
+        if (!organizationId) return;
         async function fetchMenu() {
-            const { data } = await supabase.from("menus").select("*");
+            const { data } = await supabase.from("menus").select("*").eq('organization_id', organizationId);
             setMenuItems(data || []);
         }
         fetchMenu();
-    }, []);
+    }, [organizationId]);
 
     // Preload notification audio
     useEffect(() => {
@@ -88,6 +93,7 @@ export default function KitchenPage() {
 
     // Subscribe to orders realtime updates
     useEffect(() => {
+        // Keep realtime unchanged; RLS still enforces visibility
         const channel = supabase.channel("orders");
         // INSERT handler: play sound, toast, and mark as new for 10 minutes
         channel.on(
@@ -148,46 +154,49 @@ export default function KitchenPage() {
 
     // Initial fetch: last 24 hours
     useEffect(() => {
+        if (!organizationId) return;
         async function fetchOrders() {
             const { data } = await supabase
                 .from("orders")
                 .select("id,table_id,name,order_items,status,comment,disc_amt,disc_pct,created_at")
                 .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+                .eq('organization_id', organizationId)
                 .order("created_at", { ascending: false });
             setOrders(data || []);
         }
         fetchOrders();
-    }, []);
+    }, [organizationId]);
+
+    type Notif = { id: number; message: string; created_at: string; type?: string | null; read_at: string | null };
 
     // Notifications feed: fetch and subscribe
     useEffect(() => {
+        if (!organizationId) return;
         async function fetchNotifications() {
             const { data } = await supabase
                 .from("notifications")
                 .select("id,message,created_at,type,read_at")
+                .eq('organization_id', organizationId)
                 .order("created_at", { ascending: false })
                 .limit(200);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            setNotifications((data as any) || []);
+            setNotifications((data as Notif[] | null) ?? []);
         }
         fetchNotifications();
 
         // Broadcast channel for realtime without DB replication
         const bc = supabase.channel('kitchen:notifications', { config: { broadcast: { self: false } } });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        bc.on('broadcast', { event: 'new' }, (payload: any) => {
-            const n = payload.payload as { id?: number; message: string; created_at: string; read_at?: string | null; type?: string | null };
+        bc.on('broadcast', { event: 'new' }, (payload: { payload: { id?: number; message: string; created_at: string; read_at?: string | null; type?: string | null } }) => {
+            const n = payload.payload;
             setNotifications((prev) => [{ id: n.id ?? Date.now(), message: n.message, created_at: n.created_at, type: n.type ?? 'order.new', read_at: n.read_at ?? null }, ...prev]);
         });
         bc.subscribe((status) => setNotifBcConnected(status === 'SUBSCRIBED'));
 
         // Also try Postgres Changes (if replication is later enabled)
         const pc = supabase.channel('postgres:notifications');
-        pc.on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const n = payload.new as any;
+        pc.on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload: RealtimePostgresChangesPayload<Notif>) => {
+            const n = payload.new as Notif | null | undefined;
             if (!n) return;
-            setNotifications((prev) => {
+            setNotifications((prev: Notif[]) => {
                 const idx = prev.findIndex((x) => x.id === n.id);
                 if (idx === -1) return [n, ...prev];
                 const copy = [...prev];
@@ -198,7 +207,7 @@ export default function KitchenPage() {
         pc.subscribe((status) => setNotifDbConnected(status === 'SUBSCRIBED'));
 
         return () => { supabase.removeChannel(bc); supabase.removeChannel(pc); };
-    }, []);
+    }, [organizationId]);
 
     // Fallback polling when not connected to any realtime channel
     useEffect(() => {
@@ -208,19 +217,20 @@ export default function KitchenPage() {
         async function poll() {
             if (stop) return;
             try {
+                if (!organizationId) return;
                 const { data } = await supabase
                     .from('notifications')
                     .select('id,message,created_at,type,read_at')
+                    .eq('organization_id', organizationId)
                     .order('created_at', { ascending: false })
                     .limit(200);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                setNotifications((data as any) || []);
-            } catch {}
+                setNotifications((data as Notif[] | null) ?? []);
+            } catch { }
             setTimeout(poll, 5000);
         }
         poll();
         return () => { stop = true; };
-    }, [notifBcConnected, notifDbConnected]);
+    }, [notifBcConnected, notifDbConnected, organizationId]);
 
     // Periodically prune expired new-order flags
     useEffect(() => {
@@ -387,6 +397,14 @@ export default function KitchenPage() {
         setIsPayModalOpen(false);
     }, [payTableId, orders, paySelectAll, paySelectedNames]);
 
+    // Compute selected total for PayModal via a hook to keep hooks order stable
+    const paySelectedTotal = useMemo(() => {
+        if (paySelectAll) return payGrandTotal;
+        let sum = 0;
+        for (const n of paySelectedNames) sum += payAmountsByName[n] ?? 0;
+        return sum;
+    }, [paySelectAll, paySelectedNames, payAmountsByName, payGrandTotal]);
+
     const printCurrentReceipt = () => {
         const title = receiptScope === "name"
             ? `Receipt — Table ${receiptTableId} — ${receiptName}`
@@ -508,6 +526,10 @@ export default function KitchenPage() {
         [newOrderMeta, nowTs]
     );
 
+    if (orgLoading) return <div className="p-4">Loading…</div>;
+    if (!organizationId) return <div className="p-4">No organization found for “{slug}”.</div>;
+    if (isMember === false) return <div className="p-4">You don’t have access to organization “{slug}”. Ask an owner/manager to add you.</div>;
+
     return (
         <div className="p-4 max-w-6xl mx-auto">
             <div className="flex items-center justify-between mb-4">
@@ -612,12 +634,7 @@ export default function KitchenPage() {
                 onConfirm={confirmPaySelected}
                 onClose={() => setIsPayModalOpen(false)}
                 amountsByName={payAmountsByName}
-                selectedTotal={useMemo(() => {
-                    if (paySelectAll) return payGrandTotal;
-                    let sum = 0;
-                    for (const n of paySelectedNames) sum += payAmountsByName[n] ?? 0;
-                    return sum;
-                }, [paySelectAll, paySelectedNames, payAmountsByName, payGrandTotal])}
+                selectedTotal={paySelectedTotal}
                 grandTotal={payGrandTotal}
             />
             <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />

@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabase";
 import { MenuItem } from "@/types";
 import Image from "next/image";
 import { TiShoppingCart } from "react-icons/ti";
+import { getCurrentTenant } from "@/lib/tenant";
+import { withOrg } from "@/lib/org-scope";
 
 type OrderItem = {
     menu_item_id: number;
@@ -14,6 +16,8 @@ type OrderItem = {
 
 export default function TablePage({ params }: { params: Promise<{ tableId: string }> }) {
     const { tableId } = React.use(params);
+    const { slug } = getCurrentTenant();
+    const [organizationId, setOrganizationId] = useState<string | null>(null);
 
     const [menu, setMenu] = useState<MenuItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -30,13 +34,26 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
 
     const [orderName, setOrderName] = useState('');
     const [previousNames, setPreviousNames] = useState<string[]>([]);
+    // Resolve organization id by slug for anon access
+    useEffect(() => {
+        let cancelled = false;
+        async function resolveOrg() {
+            const { data, error } = await supabase.rpc('get_org_id_by_slug', { slug });
+            if (!cancelled) setOrganizationId(error ? null : (data as string | null));
+        }
+        resolveOrg();
+        return () => { cancelled = true; };
+    }, [slug]);
+
     // Fetch previous names for this table
     useEffect(() => {
+        if (!organizationId) return;
         async function fetchPreviousNames() {
             const { data } = await supabase
                 .from('orders')
                 .select('name')
                 .eq('table_id', tableId)
+                .eq('organization_id', organizationId)
                 .not('name', 'is', null);
 
             const names = Array.from(new Set(data?.map(o => o.name!).filter(Boolean)));
@@ -44,11 +61,11 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
         }
 
         if (showSummary) fetchPreviousNames();
-    }, [showSummary, tableId]);
+    }, [showSummary, tableId, organizationId]);
 
     // Fetch today's orders
     useEffect(() => {
-        if (!showSummary) return;
+        if (!showSummary || !organizationId) return;
 
         async function fetchTodayOrders() {
             const today = new Date();
@@ -58,6 +75,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                 .from("orders")
                 .select("*")
                 .eq("table_id", tableId)
+                .eq('organization_id', organizationId)
                 .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // only last 24hrs
                 .order("created_at", { ascending: false });
 
@@ -65,16 +83,17 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
         }
 
         fetchTodayOrders();
-    }, [showSummary, tableId]);
+    }, [showSummary, tableId, organizationId]);
 
     // Fetch menu
     useEffect(() => {
         async function fetchMenu() {
-            const { data } = await supabase.from("menus").select("*");
+            if (!organizationId) return;
+            const { data } = await supabase.from("menus").select("*").eq('organization_id', organizationId);
             setMenu(data || []);
         }
         fetchMenu();
-    }, []);
+    }, [organizationId]);
 
     // Persist cart (and optional fields) in localStorage by table
     useEffect(() => {
@@ -127,7 +146,13 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
 
         setIsSubmitting(true);
 
-        const orderPayload = {
+        if (!organizationId) {
+            alert('Missing organization context. Please refresh and try again.');
+            setIsSubmitting(false);
+            return;
+        }
+
+        const orderPayload = withOrg({
             table_id: tableId,
             order_items: Object.entries(cart).map(([id, qty]) => ({
                 menu_item_id: Number(id),
@@ -136,7 +161,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             status: 'pending',
             comment: comment || null,
             name: orderName || null,
-        };
+        }, organizationId);
 
         const { data: inserted, error } = await supabase
             .from('orders')
@@ -152,6 +177,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                 if (inserted?.id) {
                     await supabase.from('notifications').insert([
                         {
+                            organization_id: organizationId,
                             type: 'order.new',
                             message: `New order #${inserted.id} — Table ${tableId}`,
                             order_id: inserted.id,
