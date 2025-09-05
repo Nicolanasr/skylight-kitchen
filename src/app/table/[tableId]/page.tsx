@@ -76,6 +76,33 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
         fetchMenu();
     }, []);
 
+    // Persist cart (and optional fields) in localStorage by table
+    useEffect(() => {
+        if (!tableId) return;
+        try {
+            const raw = localStorage.getItem(`cart:${tableId}`);
+            if (raw) {
+                const parsed = JSON.parse(raw) as { cart?: { [key: number]: number }; comment?: string; orderName?: string };
+                if (parsed.cart) setCart(parsed.cart);
+                if (parsed.comment) setComment(parsed.comment);
+                if (parsed.orderName) setOrderName(parsed.orderName);
+            }
+        } catch (_e) {
+            // ignore parse errors
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tableId]);
+
+    useEffect(() => {
+        if (!tableId) return;
+        try {
+            const payload = JSON.stringify({ cart, comment, orderName });
+            localStorage.setItem(`cart:${tableId}`, payload);
+        } catch (_e) {
+            // ignore storage errors (quota, etc.)
+        }
+    }, [tableId, cart, comment, orderName]);
+
 
     const categories = Array.from(new Set(menu.map(item => item.category)));
 
@@ -119,6 +146,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             setCart({});
             setComment('');
             setOrderName('');
+            try { localStorage.removeItem(`cart:${tableId}`); } catch (_e) {}
             alert('Order submitted!');
         }
 
@@ -259,15 +287,24 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                             if (!item) return null;
                                             return (
                                                 <li key={id} className="flex justify-between items-center">
-                                                    <span>{item.name} x {qty}</span>
+                                                    <span className="font-medium">{item.name}</span>
                                                     <div className="flex items-center gap-2">
-                                                        <span>${(item.price * qty).toFixed(2)}</span>
                                                         <button
                                                             onClick={() => removeFromCart(Number(id))}
-                                                            className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                                                            className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                                                            aria-label={`Decrease ${item.name}`}
                                                         >
-                                                            Remove
+                                                            -
                                                         </button>
+                                                        <span className="min-w-[2ch] text-center font-medium">{qty}</span>
+                                                        <button
+                                                            onClick={() => addToCart(Number(id))}
+                                                            className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                                                            aria-label={`Increase ${item.name}`}
+                                                        >
+                                                            +
+                                                        </button>
+                                                        <span className="ml-3">${(item.price * qty).toFixed(2)}</span>
                                                     </div>
                                                 </li>
                                             );
