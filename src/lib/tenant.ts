@@ -1,8 +1,8 @@
 "use client";
 
-// Lightweight tenant utilities for subdomain-based routing.
-// - Slug format: <tenant>.yourdomain.com
-// - Local dev: <tenant>.localhost:3000
+// Lightweight tenant utilities for routing.
+// Supports both path-based (/t/:slug/...) and subdomain-based (<slug>.<domain>) detection.
+// - Local dev: <tenant>.localhost:3000 or /t/<tenant>/...
 
 export type Tenant = {
 	slug: string;
@@ -32,7 +32,14 @@ export function getTenantSlugFromHost(host?: string): string {
 	return DEFAULT_TENANT;
 }
 
+export function getTenantSlugFromPath(): string | null {
+    if (typeof window === "undefined") return null;
+    const m = window.location.pathname.match(/^\/t\/([^/]+)(?:\/|$)/);
+    return m ? m[1] : null;
+}
+
 export function getCurrentTenant(): Tenant {
-	const slug = getTenantSlugFromHost();
+	const byPath = getTenantSlugFromPath();
+	const slug = byPath || getTenantSlugFromHost();
 	return { slug };
 }

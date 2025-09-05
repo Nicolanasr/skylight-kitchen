@@ -2,13 +2,25 @@ import { NextResponse, NextRequest } from "next/server";
 
 // Middleware to propagate tenant slug from host → header
 export function middleware(req: NextRequest) {
-	const url = new URL(req.url);
-	const host = req.headers.get("host") || url.host;
-	const slug = getTenantFromHost(host);
+    const url = req.nextUrl.clone();
 
-	const res = NextResponse.next({ request: { headers: req.headers } });
-	res.headers.set("x-tenant", slug);
-	return res;
+    // 1) Path-based tenancy: /t/:slug/(...)
+    const pathMatch = url.pathname.match(/^\/t\/([^/]+)(?:\/|$)/);
+    if (pathMatch) {
+        const slug = pathMatch[1];
+        // Strip the /t/:slug prefix for routing
+        url.pathname = url.pathname.replace(/^\/t\/[^/]+/, "");
+        if (url.pathname === "") url.pathname = "/";
+        // Rewrite to the stripped path; x-tenant header is not required for client-side detection
+        return NextResponse.rewrite(url);
+    }
+
+    // 2) Fallback to subdomain-based tenancy (kept for future use)
+    const host = req.headers.get("host") || url.host;
+    const slug = getTenantFromHost(host);
+    const res = NextResponse.next({ request: { headers: req.headers } });
+    res.headers.set("x-tenant", slug);
+    return res;
 }
 
 function getTenantFromHost(host: string) {
