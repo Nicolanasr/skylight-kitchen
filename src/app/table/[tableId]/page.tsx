@@ -146,7 +146,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             setCart({});
             setComment('');
             setOrderName('');
-            try { localStorage.removeItem(`cart:${tableId}`); } catch (_e) {}
+            try { localStorage.removeItem(`cart:${tableId}`); } catch (_e) { }
             alert('Order submitted!');
         }
 
@@ -291,7 +291,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                                     <div className="flex items-center gap-2">
                                                         <button
                                                             onClick={() => removeFromCart(Number(id))}
-                                                            className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                                                            className="px-4 py-1 bg-gray-200 rounded hover:bg-gray-300"
                                                             aria-label={`Decrease ${item.name}`}
                                                         >
                                                             -
@@ -299,7 +299,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                                         <span className="min-w-[2ch] text-center font-medium">{qty}</span>
                                                         <button
                                                             onClick={() => addToCart(Number(id))}
-                                                            className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                                                            className="px-4 py-1 bg-gray-200 rounded hover:bg-gray-300"
                                                             aria-label={`Increase ${item.name}`}
                                                         >
                                                             +
