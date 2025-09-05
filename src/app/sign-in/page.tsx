@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
+import { getCurrentTenant } from '@/lib/tenant';
 
 export default function SignInPage() {
   const router = useRouter();
@@ -10,6 +11,8 @@ export default function SignInPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const { slug } = getCurrentTenant();
 
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +23,9 @@ export default function SignInPage() {
     if (error) {
       setError(error.message);
     } else {
-      router.replace('/kitchen');
+      const redirect = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('redirect') : null;
+      const target = redirect && redirect.startsWith('/') ? redirect : `/t/${slug}/kitchen`;
+      router.replace(target);
     }
   };
 
@@ -51,4 +56,3 @@ export default function SignInPage() {
     </div>
   );
 }
-

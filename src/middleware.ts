@@ -7,7 +7,6 @@ export function middleware(req: NextRequest) {
     // 1) Path-based tenancy: /t/:slug/(...)
     const pathMatch = url.pathname.match(/^\/t\/([^/]+)(?:\/|$)/);
     if (pathMatch) {
-        const slug = pathMatch[1];
         // Strip the /t/:slug prefix for routing
         url.pathname = url.pathname.replace(/^\/t\/[^/]+/, "");
         if (url.pathname === "") url.pathname = "/";
