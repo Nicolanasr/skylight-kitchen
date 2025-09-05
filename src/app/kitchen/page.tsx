@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Order, OrderItem, MenuItem } from "@/types";
+import ReceiptModal from "@/components/kitchen/ReceiptModal";
+import EditOrderModal from "@/components/kitchen/EditOrderModal";
+import PayModal from "@/components/kitchen/PayModal";
+import StatusSection from "@/components/kitchen/StatusSection";
+import SearchBar from "@/components/kitchen/SearchBar";
+import { useNowTick } from "@/components/kitchen/hooks";
+import { buildHighlighter, buildMenuIndex, formatDateBeirut, getOrderDiscount as utilGetOrderDiscount, getOrderSubtotal as utilGetOrderSubtotal } from "@/components/kitchen/utils";
 
 export default function KitchenPage() {
+    const nowTs = useNowTick(60000);
     const [orders, setOrders] = useState<Order[]>([]);
     const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
@@ -27,9 +35,7 @@ export default function KitchenPage() {
     const [paySelectAll, setPaySelectAll] = useState<boolean>(true);
     // Collapsible paid tables
     const [paidExpanded, setPaidExpanded] = useState<Record<string, boolean>>({});
-    // Collapsible groups: by customer name and by order
-    const [expandedNames, setExpandedNames] = useState<Record<string, boolean>>({});
-    const [expandedOrders, setExpandedOrders] = useState<Record<number, boolean>>({});
+    // Collapsible groups removed: always show details expanded
 
     // Edit order modal state
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -42,25 +48,10 @@ export default function KitchenPage() {
     const [addItemId, setAddItemId] = useState<number | null>(null);
     const [addQty, setAddQty] = useState<number>(1);
 
-    // Helpers for totals/discounts using new columns with legacy fallback
-    const getOrderSubtotal = (order: Order) => {
-        return (
-            order.order_items?.reduce((sum, it) => {
-                const m = menuItems.find((mm) => mm.id === it.menu_item_id);
-                return sum + (m ? m.price * it.quantity : 0);
-            }, 0) || 0
-        );
-    };
-
-    const getOrderDiscount = (order: Order, subtotal: number) => {
-        // prefer columns; fallback to legacy tags in comment if columns are null/0
-        const pct = order.disc_pct && order.disc_pct > 0 ? order.disc_pct : 0;
-        const amt = order.disc_amt && order.disc_amt > 0 ? order.disc_amt : 0;
-        let discount = 0;
-        if (pct > 0) discount = (subtotal * pct) / 100;
-        else if (amt > 0) discount = amt;
-        return Math.min(discount, subtotal);
-    };
+    // Helpers and indexes
+    const menuIndex = useMemo(() => buildMenuIndex(menuItems), [menuItems]);
+    const getOrderSubtotal = useCallback((order: Order) => utilGetOrderSubtotal(order, menuIndex), [menuIndex]);
+    const getOrderDiscount = useCallback((order: Order, subtotal: number) => utilGetOrderDiscount(order, subtotal), []);
 
     // Fetch menu items for names
     useEffect(() => {
@@ -76,48 +67,46 @@ export default function KitchenPage() {
         async function fetchOrders() {
             const { data } = await supabase
                 .from("orders")
-                .select("*")
+                .select("id,table_id,name,order_items,status,comment,disc_amt,disc_pct,created_at")
                 .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // only last 24hrs
                 .order("created_at", { ascending: false }); // latest first
             setOrders(data || []);
         }
         fetchOrders();
 
-        const subscription = supabase
-            .channel("orders")
-            .on(
-                "postgres_changes",
-                { event: "*", schema: "public", table: "orders" },
-                (payload) => {
-                    const updatedOrder = payload.new as Order;
-                    setOrders((prev) => {
-                        const index = prev.findIndex((o) => o.id === updatedOrder.id);
-                        if (index === -1) return [updatedOrder, ...prev]; // new order first
-                        const newOrders = [...prev];
-                        newOrders[index] = updatedOrder;
-                        return newOrders;
-                    });
-                }
-            )
+        const channel = supabase.channel("orders");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const handler = (payload: any) => {
+            const updatedOrder = payload.new as Order;
+            setOrders((prev) => {
+                const index = prev.findIndex((o) => o.id === updatedOrder.id);
+                if (index === -1) return [updatedOrder, ...prev];
+                const newOrders = [...prev];
+                newOrders[index] = updatedOrder;
+                return newOrders;
+            });
+        };
+        channel
+            .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders" }, handler)
+            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders" }, handler)
             .subscribe();
 
         // Cleanup must be synchronous
         return () => {
             // call async cleanup but don't return its Promise
-            supabase.removeChannel(subscription).then(() => {
+            supabase.removeChannel(channel).then(() => {
                 console.log("Channel removed");
             });
         };
     }, []);
 
     // Convert UTC to Beirut time
-    const formatDate = (utcDate: string) =>
-        new Date(`${utcDate}Z`).toLocaleString("en-US", { timeZone: "Asia/Beirut" });
+    const formatDate = useCallback((utcDate: string) => formatDateBeirut(utcDate), []);
 
     // Update order status
-    const updateStatus = async (order: Order, nextStatus: string) => {
+    const updateStatus = useCallback(async (order: Order, nextStatus: string) => {
         await supabase.from("orders").update({ status: nextStatus }).eq("id", order.id);
-    };
+    }, []);
 
     // legacy inline alert receipt removed; receipt handled via modal
 
@@ -131,7 +120,7 @@ export default function KitchenPage() {
         let totalDiscount = 0;
         servedOrders.forEach((order) => {
             order.order_items?.forEach((oi) => {
-                const menu = menuItems.find((m) => m.id === oi.menu_item_id);
+                const menu = menuIndex[oi.menu_item_id];
                 const itemName = menu?.name || "Unknown";
                 const unitPrice = menu?.price || 0;
                 if (!byItem[oi.menu_item_id]) {
@@ -154,15 +143,15 @@ export default function KitchenPage() {
         setReceiptTotal(Math.max(0, total - totalDiscount));
     };
 
-    const openReceiptForTable = (tableId: string) => {
+    const openReceiptForTable = useCallback((tableId: string) => {
         setReceiptScope("table");
         setReceiptTableId(tableId);
         setReceiptName(null);
         buildReceiptData(tableId);
         setIsReceiptOpen(true);
-    };
+    }, [buildReceiptData]);
 
-    const openReceiptForName = (tableId: string) => {
+    const openReceiptForName = useCallback((tableId: string) => {
         setReceiptScope("name");
         setReceiptTableId(tableId);
         // names available only among served orders for this table
@@ -186,16 +175,16 @@ export default function KitchenPage() {
             setReceiptTotal(0);
         }
         setIsReceiptOpen(true);
-    };
+    }, [orders]);
 
-    const handleSelectReceiptName = (name: string) => {
+    const handleSelectReceiptName = useCallback((name: string) => {
         if (!receiptTableId) return;
         setReceiptName(name);
         buildReceiptData(receiptTableId, name);
-    };
+    }, [receiptTableId, orders]);
 
     // Open pay modal for a table (served orders only)
-    const openPayModal = (tableId: string) => {
+    const openPayModal = useCallback((tableId: string) => {
         setPayTableId(tableId);
         const names = Array.from(
             new Set(
@@ -208,18 +197,18 @@ export default function KitchenPage() {
         setPaySelectedNames(new Set(names));
         setPaySelectAll(true);
         setIsPayModalOpen(true);
-    };
+    }, [orders]);
 
-    const togglePayName = (name: string) => {
+    const togglePayName = useCallback((name: string) => {
         setPaySelectedNames((prev) => {
             const next = new Set(prev);
             if (next.has(name)) next.delete(name); else next.add(name);
             setPaySelectAll(next.size === payNames.length);
             return next;
         });
-    };
+    }, [payNames.length]);
 
-    const togglePaySelectAll = () => {
+    const togglePaySelectAll = useCallback(() => {
         if (paySelectAll) {
             setPaySelectedNames(new Set());
             setPaySelectAll(false);
@@ -227,9 +216,9 @@ export default function KitchenPage() {
             setPaySelectedNames(new Set(payNames));
             setPaySelectAll(true);
         }
-    };
+    }, [paySelectAll, payNames]);
 
-    const confirmPaySelected = async () => {
+    const confirmPaySelected = useCallback(async () => {
         if (!payTableId) return;
         const eligible = orders.filter(
             (o) => o.table_id === payTableId && o.status === "served" && (paySelectAll || paySelectedNames.has(o.name && o.name.trim() ? o.name.trim() : "Unknown"))
@@ -247,7 +236,7 @@ export default function KitchenPage() {
             alert("Failed to mark paid: " + error.message);
         }
         setIsPayModalOpen(false);
-    };
+    }, [payTableId, orders, paySelectAll, paySelectedNames]);
 
     const printCurrentReceipt = () => {
         const title = receiptScope === "name"
@@ -320,651 +309,129 @@ export default function KitchenPage() {
     const statuses = ["pending", "preparing", "ready to be served", "served", "paid", "canceled"];
 
     // Search filtering: by item name, customer name, or table number
-    const menuNameById = new Map(menuItems.map((m) => [m.id, m.name.toLowerCase()]));
+    const menuNameById = useMemo(() => {
+        const m = new Map<number, string>();
+        for (const key in menuIndex) {
+            const id = Number(key);
+            const mi = menuIndex[id];
+            if (mi) m.set(mi.id, mi.name.toLowerCase());
+        }
+        return m;
+    }, [menuIndex]);
+
     const q = searchQuery.trim().toLowerCase();
-    const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&");
-    const highlightItemName = (text: string) => {
-        if (!q) return text;
-        const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, "ig"));
-        return parts.map((part, idx) =>
-            idx % 2 === 1 ? (
-                <mark key={idx} className="bg-yellow-200 px-0.5 rounded">
-                    {part}
-                </mark>
-            ) : (
-                <span key={idx}>{part}</span>
-            )
-        );
-    };
-    const filteredOrders = q
-        ? orders.filter((order) => {
-              const tableMatch = order.table_id.toLowerCase().includes(q);
-              const nameMatch = (order.name || "").toLowerCase().includes(q);
-              const itemMatch = (order.order_items || []).some((it) =>
-                  (menuNameById.get(it.menu_item_id) || "").includes(q)
-              );
-              return tableMatch || nameMatch || itemMatch;
-          })
-        : orders;
+    const highlightItemName = useMemo(() => buildHighlighter(q), [q]);
+
+    const filteredOrders = useMemo(() => {
+        if (!q) return orders;
+        return orders.filter((order) => {
+            const tableMatch = order.table_id.toLowerCase().includes(q);
+            const nameMatch = (order.name || "").toLowerCase().includes(q);
+            const itemMatch = (order.order_items || []).some((it) => (menuNameById.get(it.menu_item_id) || "").includes(q));
+            return tableMatch || nameMatch || itemMatch;
+        });
+    }, [orders, q, menuNameById]);
 
     // Group orders by status → table → name
-    const ordersByStatusTableName: Record<string, Record<string, Record<string, Order[]>>> = {};
-    statuses.forEach((status) => (ordersByStatusTableName[status] = {}));
-
-    filteredOrders.forEach((order) => {
-        const tableKey = order.table_id;
-        const nameKey = order.name && order.name.trim() ? order.name.trim() : "Unknown";
-        if (!ordersByStatusTableName[order.status][tableKey]) {
-            ordersByStatusTableName[order.status][tableKey] = {};
+    const ordersByStatusTableName = useMemo(() => {
+        const map: Record<string, Record<string, Record<string, Order[]>>> = {};
+        statuses.forEach((s) => (map[s] = {}));
+        for (const order of filteredOrders) {
+            const tableKey = order.table_id;
+            const nameKey = order.name && order.name.trim() ? order.name.trim() : "Unknown";
+            if (!map[order.status][tableKey]) map[order.status][tableKey] = {};
+            if (!map[order.status][tableKey][nameKey]) map[order.status][tableKey][nameKey] = [];
+            map[order.status][tableKey][nameKey].push(order);
         }
-        if (!ordersByStatusTableName[order.status][tableKey][nameKey]) {
-            ordersByStatusTableName[order.status][tableKey][nameKey] = [];
-        }
-        ordersByStatusTableName[order.status][tableKey][nameKey].push(order);
-    });
+        return map;
+    }, [filteredOrders]);
 
     return (
         <div className="p-4 max-w-6xl mx-auto">
             <h1 className="text-2xl font-bold mb-4">Kitchen Orders</h1>
-            <div className="mb-4 flex items-center gap-2">
-                <input
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full max-w-md border rounded px-3 py-2"
-                    placeholder="Search items, name, or table #"
-                />
-                {searchQuery && (
-                    <button
-                        className="px-3 py-2 bg-gray-200 rounded"
-                        onClick={() => setSearchQuery("")}
-                    >
-                        Clear
-                    </button>
-                )}
-            </div>
+            <SearchBar value={searchQuery} onDebouncedChange={setSearchQuery} onClear={() => setSearchQuery("")} />
 
             {statuses.map((status) => (
-                <div key={status} className="mb-6">
-                    <h2 className="text-xl font-semibold mb-2 capitalize">{status}</h2>
-                    {Object.keys(ordersByStatusTableName[status]).length === 0 && (
-                        <p className="text-gray-500">No orders</p>
-                    )}
-                    {/* Group by table, then by name within each table */}
-                    {Object.entries(ordersByStatusTableName[status])
-                        .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
-                        .map(([tableId, namesMap]) => (
-                            <div key={tableId} className="mb-4 p-3 border rounded bg-gray-50">
-                                <div className="flex justify-between items-center mb-2">
-                                    <h3 className="font-semibold">Table {tableId}</h3>
-                                    {/* Show Receipt button only if there are served orders */}
-                                    {status == "served" && filteredOrders.some((o) => o.table_id === tableId && o.status === "served") && (
-                                        <div className="flex gap-2">
-                                            <button
-                                                className="px-3 py-1 bg-gray-600 rounded text-white"
-                                                onClick={() => openReceiptForTable(tableId)}
-                                            >
-                                                Receipt (Table)
-                                            </button>
-                                            <button
-                                                className="px-3 py-1 bg-gray-600 rounded text-white"
-                                                onClick={() => openReceiptForName(tableId)}
-                                            >
-                                                Receipt / Name
-                                            </button>
-                                            <button
-                                                className="px-3 py-1 bg-green-600 rounded text-white"
-                                                onClick={() => openPayModal(tableId)}
-                                            >
-                                                Mark Paid
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {(() => {
-                                    const expKey = `${status}:${tableId}`;
-                                    const list =
-                                        Object.entries(namesMap)
-                                            .sort(([a], [b]) => a.localeCompare(b))
-                                            .map(([name, nameOrders]) => {
-                                                const nameKey = `${status}:${tableId}:${name}`;
-                                                const isNameOpen = expandedNames[nameKey] !== false;
-                                                // Build combined items for collapsed name view
-                                                const combined: Record<number, { itemName: string; qty: number }> = {};
-                                                nameOrders.forEach((o) =>
-                                                    o.order_items?.forEach((it) => {
-                                                        const m = menuItems.find((mm) => mm.id === it.menu_item_id);
-                                                        const itemName = m?.name || 'Unknown';
-                                                        if (!combined[it.menu_item_id]) combined[it.menu_item_id] = { itemName, qty: 0 };
-                                                        combined[it.menu_item_id].qty += it.quantity;
-                                                    })
-                                                );
-                                                return (
-                                                    <div key={name} className="mb-3">
-                                                        <div className="flex justify-between items-center mb-2">
-                                                            <h4 className="font-medium">Name: {name}</h4>
-                                                            <button
-                                                                className="px-2 py-1 bg-gray-200 rounded"
-                                                                onClick={() =>
-                                                                    setExpandedNames((prev) => ({
-                                                                        ...prev,
-                                                                        [nameKey]: !isNameOpen,
-                                                                    }))
-                                                                }
-                                                            >
-                                                                {isNameOpen ? 'Hide Details' : 'Show Details'}
-                                                            </button>
-                                                        </div>
-                                                        {!isNameOpen && (
-                                                            <ul className="ml-4 list-disc">
-                                                                {Object.values(combined)
-                                                                    .sort((a, b) => a.itemName.localeCompare(b.itemName))
-                                                                    .map((row, idx) => (
-                                                                        <li key={idx}>
-                                                                            <span className="mr-1">{highlightItemName(row.itemName)}</span>
-                                                                            x {row.qty}
-                                                                        </li>
-                                                                    ))}
-                                                            </ul>
-                                                        )}
-                                                        {isNameOpen && (
-                                                            <>
-                                                                {nameOrders.map((order) => {
-                                                                    const ordOpen = !!expandedOrders[order.id];
-                                                                    // Calculate minutes since order was created
-                                                                    const now = new Date();
-                                                                    const created = new Date(formatDate(order.created_at));
-                                                                    const diffMinutes = Math.floor((now.getTime() - created.getTime()) / 60000);
-
-                                                                    // Determine color
-                                                                    let timeColor = 'text-green-600'; // 0-10
-                                                                    if (diffMinutes > 10 && diffMinutes <= 20) timeColor = 'text-orange-500';
-                                                                    else if (diffMinutes > 20) timeColor = 'text-red-600';
-
-                                                                    return (
-                                                                        <div key={order.id} className="p-2 mb-2 border rounded bg-white">
-                                                                            <div className="flex justify-between items-center">
-                                                                                <p className="m-0"><strong>Order ID:</strong> {order.id}</p>
-                                                                                <button
-                                                                                    className="px-2 py-1 bg-gray-100 rounded"
-                                                                                    onClick={() =>
-                                                                                        setExpandedOrders((prev) => ({
-                                                                                            ...prev,
-                                                                                            [order.id]: !ordOpen,
-                                                                                        }))
-                                                                                    }
-                                                                                >
-                                                                                    {ordOpen ? 'Hide Details' : 'Show Details'}
-                                                                                </button>
-                                                                            </div>
-                                                                            {!ordOpen && (
-                                                                            <>
-                                                                            <ul className="ml-4 list-disc mt-2">
-                                                                                    {order.order_items?.map((item) => {
-                                                                                        const menu = menuItems.find((m) => m.id === item.menu_item_id);
-                                                                                        const unit = menu?.price || 0;
-                                                                                        const line = unit * item.quantity;
-                                                                                        return (
-                                                                                            <li key={item.menu_item_id}>
-                                                                                                <span className="mr-1">{highlightItemName(menu?.name || 'Unknown')}</span>
-                                                                                                x {item.quantity} — ${line.toFixed(2)}
-                                                                                            </li>
-                                                                                        );
-                                                                                    })}
-                                                                                </ul>
-                                                                                <div className="mt-2 flex gap-2 flex-wrap">
-                                                                                    {status !== 'paid' && (
-                                                                                        <button
-                                                                                            className="px-3 py-1 bg-purple-600 rounded text-white"
-                                                                                            onClick={() => {
-                                                                                                setEditOrder(order);
-                                                                                                setEditItems(order.order_items ? [...order.order_items] : []);
-                                                                                                setEditName(order.name || '');
-                                                                                                setEditComment(order.comment || '');
-                                                                                                setEditDiscAmount(order.disc_amt || 0);
-                                                                                                setEditDiscPercent(order.disc_pct || 0);
-                                                                                                setAddItemId(null);
-                                                                                                setAddQty(1);
-                                                                                                setIsEditOpen(true);
-                                                                                            }}
-                                                                                        >
-                                                                                            Edit
-                                                                                        </button>
-                                                                                    )}
-                                                                                    {status === 'pending' && (
-                                                                                        <button className="px-3 py-1 bg-yellow-400 rounded text-white" onClick={() => updateStatus(order, 'preparing')}>
-                                                                                            Make Preparing
-                                                                                        </button>
-                                                                                    )}
-                                                                                    {status === 'preparing' && (
-                                                                                        <button className="px-3 py-1 bg-blue-500 rounded text-white" onClick={() => updateStatus(order, 'ready to be served')}>
-                                                                                            Make Ready to Serve
-                                                                                        </button>
-                                                                                    )}
-                                                                                    {status === 'ready to be served' && (
-                                                                                        <button className="px-3 py-1 bg-orange-500 rounded text-white" onClick={() => updateStatus(order, 'served')}>
-                                                                                            Make Served
-                                                                                        </button>
-                                                                                    )}
-                                                                                </div>
-                                                                                </>
-                                                                            )}
-                                                                            {ordOpen && (
-                                                                                <>
-                                                                                    <p>
-                                                                                        <strong>Table:</strong> {order.table_id}
-                                                                                    </p>
-                                                                                    <p>
-                                                                                        <strong>Name:</strong> {order.name || 'Unknown'}
-                                                                                    </p>
-                                                                                    <p>
-                                                                                        <strong>Date:</strong> {formatDate(order.created_at)} —{' '}
-                                                                                        <span className={timeColor}>Ordered {diffMinutes} min ago</span>
-                                                                                    </p>
-                                                                                    <p>
-                                                                                        <strong>Comment:</strong> {order.comment || 'None'}
-                                                                                    </p>
-                                                                                    <p>
-                                                                                        <strong>Items:</strong>
-                                                                                    </p>
-                                                                                    <ul className="ml-4 list-disc">
-                                                                                        {order.order_items?.map((item) => {
-                                                                                            const menu = menuItems.find((m) => m.id === item.menu_item_id);
-                                                                                            const unit = menu?.price || 0;
-                                                                                            const line = unit * item.quantity;
-                                                                                            return (
-                                                                                                <li key={item.menu_item_id}>
-                                                                                                    <span className="mr-1">{highlightItemName(menu?.name || 'Unknown')}</span>
-                                                                                                    x {item.quantity} — ${line.toFixed(2)}
-                                                                                                </li>
-                                                                                            );
-                                                                                        })}
-                                                                                    </ul>
-                                                                                    {(() => {
-                                                                                        const subtotal = getOrderSubtotal(order);
-                                                                                        const discount = getOrderDiscount(order, subtotal);
-                                                                                        const total = Math.max(0, subtotal - discount);
-                                                                                        return (
-                                                                                            <div className="mt-2 text-sm ml-4">
-                                                                                                <div>Subtotal: ${subtotal.toFixed(2)}</div>
-                                                                                                {discount > 0 && <div>Discount: -${discount.toFixed(2)}</div>}
-                                                                                                <div className="font-semibold">Total: ${total.toFixed(2)}</div>
-                                                                                            </div>
-                                                                                        );
-                                                                                    })()}
-
-                                                                                    <div className="mt-2 flex gap-2 flex-wrap">
-                                                                                        {status !== 'paid' && (
-                                                                                            <button
-                                                                                                className="px-3 py-1 bg-purple-600 rounded text-white"
-                                                                                                onClick={() => {
-                                                                                                    setEditOrder(order);
-                                                                                                    setEditItems(order.order_items ? [...order.order_items] : []);
-                                                                                                    setEditName(order.name || '');
-                                                                                                    setEditComment(order.comment || '');
-                                                                                                    setEditDiscAmount(order.disc_amt || 0);
-                                                                                                    setEditDiscPercent(order.disc_pct || 0);
-                                                                                                    setAddItemId(null);
-                                                                                                    setAddQty(1);
-                                                                                                    setIsEditOpen(true);
-                                                                                                }}
-                                                                                            >
-                                                                                                Edit
-                                                                                            </button>
-                                                                                        )}
-                                                                                        {status === 'pending' && (
-                                                                                            <button className="px-3 py-1 bg-yellow-400 rounded text-white" onClick={() => updateStatus(order, 'preparing')}>
-                                                                                                Make Preparing
-                                                                                            </button>
-                                                                                        )}
-                                                                                        {status === 'preparing' && (
-                                                                                            <button className="px-3 py-1 bg-blue-500 rounded text-white" onClick={() => updateStatus(order, 'ready to be served')}>
-                                                                                                Make Ready to Serve
-                                                                                            </button>
-                                                                                        )}
-                                                                                        {status === 'ready to be served' && (
-                                                                                            <button className="px-3 py-1 bg-orange-500 rounded text-white" onClick={() => updateStatus(order, 'served')}>
-                                                                                                Make Served
-                                                                                            </button>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </>
-                                                                            )}
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                );
-                                            });
-
-                                    if (status === "paid" || status === "served") {
-                                        return (
-                                            <div>
-                                                <button
-                                                    className="px-2 py-1 bg-gray-200 rounded"
-                                                    onClick={() =>
-                                                        setPaidExpanded((prev) => ({
-                                                            ...prev,
-                                                            [expKey]: !prev[expKey],
-                                                        }))
-                                                    }
-                                                >
-                                                    {paidExpanded[expKey] ? "Hide" : "Show"} Details
-                                                </button>
-                                                {paidExpanded[expKey] && <div className="mt-2">{list}</div>}
-                                            </div>
-                                        );
-                                    }
-
-                                    return list;
-                                })()}
-                            </div>
-                        ))}
-                </div>
+                <StatusSection
+                    key={status}
+                    status={status}
+                    tablesMap={ordersByStatusTableName[status]}
+                    paidExpanded={paidExpanded}
+                    setPaidExpanded={setPaidExpanded}
+                    menuIndex={menuIndex}
+                    highlightItemName={highlightItemName}
+                    formatDate={formatDate}
+                    getOrderSubtotal={getOrderSubtotal}
+                    getOrderDiscount={getOrderDiscount}
+                    updateStatus={updateStatus}
+                    onEdit={(order: Order) => {
+                        setEditOrder(order);
+                        setEditItems(order.order_items ? [...order.order_items] : []);
+                        setEditName(order.name || '');
+                        setEditComment(order.comment || '');
+                        setEditDiscAmount(order.disc_amt || 0);
+                        setEditDiscPercent(order.disc_pct || 0);
+                        setAddItemId(null);
+                        setAddQty(1);
+                        setIsEditOpen(true);
+                    }}
+                    onOpenReceiptForTable={openReceiptForTable}
+                    onOpenReceiptForName={openReceiptForName}
+                    onOpenPayModal={openPayModal}
+                    nowTs={nowTs}
+                />
             ))}
 
-            {/* Receipt Modal */}
-            {isReceiptOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded shadow w-11/12 max-w-md max-h-[85vh] overflow-auto p-4 relative">
-                        <button
-                            className="absolute top-2 right-2 px-2 py-1 bg-gray-200 rounded"
-                            onClick={() => setIsReceiptOpen(false)}
-                        >
-                            Close
-                        </button>
+            <ReceiptModal
+                isOpen={isReceiptOpen}
+                scope={receiptScope}
+                tableId={receiptTableId}
+                name={receiptName}
+                namesForTable={receiptNamesForTable}
+                items={receiptItems}
+                discount={receiptDiscount}
+                total={receiptTotal}
+                paperWidth={receiptPaperWidth}
+                onClose={() => setIsReceiptOpen(false)}
+                onSelectName={handleSelectReceiptName}
+                onPrint={printCurrentReceipt}
+                setPaperWidth={setReceiptPaperWidth}
+                highlightItemName={highlightItemName}
+            />
 
-                        <h2 className="text-lg font-semibold mb-2">
-                            {receiptScope === "name"
-                                ? `Receipt — Table ${receiptTableId} — ${receiptName ?? "Select name"}`
-                                : `Receipt — Table ${receiptTableId}`}
-                        </h2>
+            <EditOrderModal
+                isOpen={isEditOpen}
+                order={editOrder}
+                menuItems={menuItems}
+                editItems={editItems}
+                setEditItems={setEditItems}
+                editName={editName}
+                setEditName={setEditName}
+                editComment={editComment}
+                setEditComment={setEditComment}
+                editDiscAmount={editDiscAmount}
+                setEditDiscAmount={setEditDiscAmount}
+                editDiscPercent={editDiscPercent}
+                setEditDiscPercent={setEditDiscPercent}
+                addItemId={addItemId}
+                setAddItemId={setAddItemId}
+                addQty={addQty}
+                setAddQty={setAddQty}
+                setIsOpen={setIsEditOpen}
+                setOrders={setOrders}
+            />
 
-                        {receiptScope === "name" && receiptName === null && (
-                            <div className="mb-3">
-                                <p className="text-sm text-gray-600 mb-2">Select a name:</p>
-                                <div className="flex flex-wrap gap-2">
-                                    {receiptNamesForTable.map((n) => (
-                                        <button
-                                            key={n}
-                                            className="px-3 py-1 bg-blue-500 text-white rounded"
-                                            onClick={() => handleSelectReceiptName(n)}
-                                        >
-                                            {n}
-                                        </button>
-                                    ))}
-                                    {receiptNamesForTable.length === 0 && (
-                                        <span className="text-sm text-gray-500">No served orders</span>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {receiptItems.length > 0 ? (
-                            <div>
-                                <div className="mb-2 flex items-center gap-2">
-                                    <label className="text-xs text-gray-600">Paper width</label>
-                                    <select
-                                        className="border rounded p-1 text-xs"
-                                        value={receiptPaperWidth}
-                                        onChange={(e) => setReceiptPaperWidth(e.target.value as '80mm' | '57mm' | '3.125in')}
-                                    >
-                                        <option value="80mm">80mm</option>
-                                        <option value="57mm">57mm</option>
-                                        <option value="3.125in">3-1/8 in</option>
-                                    </select>
-                                </div>
-                                {/* Receipt preview in thermal format */}
-                                <div
-                                    className="font-mono text-sm p-2"
-                                    style={{ width: `calc(${receiptPaperWidth} - 10mm)` }}
-                                >
-                                    <div className="text-center font-semibold">Receipt</div>
-                                    <div className="text-center text-xs text-gray-600">{new Date().toLocaleString()}</div>
-                                    <div className="text-center text-xs">
-                                        {receiptScope === 'name' ? `Table ${receiptTableId} — ${receiptName}` : `Table ${receiptTableId}`}
-                                    </div>
-                                    <div className="border-t border-dashed my-2"></div>
-                                    {receiptItems.map((it, idx) => (
-                                        <div key={idx} className="flex items-baseline">
-                                            <div className="flex-1 pr-2">{highlightItemName(it.itemName)}</div>
-                                            <div className="w-12 text-right">x {it.quantity}</div>
-                                            <div className="w-16 text-right">{`$${it.lineTotal.toFixed(2)}`}</div>
-                                        </div>
-                                    ))}
-                                    <div className="border-t border-dashed my-2"></div>
-                                    <div className="flex text-xs">
-                                        <div className="flex-1"></div>
-                                        <div className="w-24 text-right">Subtotal</div>
-                                        <div className="w-20 text-right">{`$${receiptItems.reduce((s, i) => s + i.lineTotal, 0).toFixed(2)}`}</div>
-                                    </div>
-                                    <div className="flex text-xs">
-                                        <div className="flex-1"></div>
-                                        <div className="w-24 text-right">Discount</div>
-                                        <div className="w-20 text-right">{`-$${receiptDiscount.toFixed(2)}`}</div>
-                                    </div>
-                                    <div className="flex font-semibold">
-                                        <div className="flex-1"></div>
-                                        <div className="w-24 text-right">Total</div>
-                                        <div className="w-20 text-right">{`$${receiptTotal.toFixed(2)}`}</div>
-                                    </div>
-                                </div>
-
-                                <div className="mt-4 flex justify-end gap-2">
-                                    <button
-                                        className="px-3 py-1 bg-gray-200 rounded"
-                                        onClick={() => setIsReceiptOpen(false)}
-                                    >
-                                        Close
-                                    </button>
-                                    <button
-                                        className="px-3 py-1 bg-green-600 text-white rounded"
-                                        onClick={printCurrentReceipt}
-                                    >
-                                        Print
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            receiptScope === "name" && receiptName === null ? null : (
-                                <p className="text-sm text-gray-500">No items to display.</p>
-                            )
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* Edit Order Modal */}
-            {isEditOpen && editOrder && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded shadow w-11/12 max-w-lg max-h-[85vh] overflow-auto p-4 relative">
-                        <button
-                            className="absolute top-2 right-2 px-2 py-1 bg-gray-200 rounded"
-                            onClick={() => setIsEditOpen(false)}
-                        >
-                            Close
-                        </button>
-                        <h2 className="text-lg font-semibold mb-2">Edit Order #{editOrder.id}</h2>
-
-                        <div className="mb-3 grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-sm">Name</label>
-                                <input className="w-full border rounded p-2" value={editName} onChange={(e) => setEditName(e.target.value)} />
-                            </div>
-                            <div>
-                                <label className="block text-sm">Table</label>
-                                <input className="w-full border rounded p-2 bg-gray-100" value={editOrder.table_id} readOnly />
-                            </div>
-                        </div>
-
-                        <label className="block text-sm mb-1">Comment</label>
-                        <textarea className="w-full border rounded p-2 mb-3" value={editComment} onChange={(e) => setEditComment(e.target.value)} />
-
-                        <div className="mb-3">
-                            <div className="font-medium mb-2">Items</div>
-                            {editItems.length === 0 && <div className="text-sm text-gray-500">No items</div>}
-                            {editItems.map((it, idx) => {
-                                const menu = menuItems.find((m) => m.id === it.menu_item_id);
-                                return (
-                                    <div key={`${it.menu_item_id}-${idx}`} className="flex items-center gap-2 mb-2">
-                                        <div className="flex-1">{menu?.name || `Item ${it.menu_item_id}`}</div>
-                                        <div className="flex items-center gap-1">
-                                            <button className="px-2 py-1 bg-gray-200 rounded" onClick={() => {
-                                                setEditItems((prev) => prev.map((p, i) => i === idx ? { ...p, quantity: Math.max(0, p.quantity - 1) } : p).filter(p => p.quantity > 0));
-                                            }}>-</button>
-                                            <input type="number" className="w-14 border rounded p-1 text-center" value={it.quantity} onChange={(e) => {
-                                                const q = Math.max(0, Number(e.target.value));
-                                                setEditItems((prev) => prev.map((p, i) => i === idx ? { ...p, quantity: q } : p).filter(p => p.quantity > 0));
-                                            }} />
-                                            <button className="px-2 py-1 bg-gray-200 rounded" onClick={() => {
-                                                setEditItems((prev) => prev.map((p, i) => i === idx ? { ...p, quantity: p.quantity + 1 } : p));
-                                            }}>+</button>
-                                        </div>
-                                        <button className="px-2 py-1 bg-red-500 text-white rounded" onClick={() => setEditItems((prev) => prev.filter((_, i) => i !== idx))}>Remove</button>
-                                    </div>
-                                );
-                            })}
-
-                            <div className="flex items-center gap-2 mt-2">
-                                <select className="border rounded p-2" value={addItemId ?? ''} onChange={(e) => setAddItemId(e.target.value ? Number(e.target.value) : null)}>
-                                    <option value="">Add item...</option>
-                                    {menuItems.map(mi => (
-                                        <option key={mi.id} value={mi.id}>{mi.name} (${mi.price.toFixed(2)})</option>
-                                    ))}
-                                </select>
-                                <input type="number" className="w-20 border rounded p-2" value={addQty} onChange={(e) => setAddQty(Number(e.target.value))} />
-                                <button className="px-3 py-1 bg-blue-600 text-white rounded" onClick={() => {
-                                    if (!addItemId) return;
-                                    const existingIdx = editItems.findIndex(x => x.menu_item_id === addItemId);
-                                    if (existingIdx >= 0) {
-                                        setEditItems(prev => prev.map((p, i) => i === existingIdx ? { ...p, quantity: p.quantity + addQty } : p));
-                                    } else {
-                                        setEditItems(prev => [...prev, { id: Date.now(), menu_item_id: addItemId, quantity: addQty } as OrderItem]);
-                                    }
-                                    setAddItemId(null);
-                                    setAddQty(1);
-                                }}>Add</button>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-sm">Discount Amount ($)</label>
-                                <input type="number" className="w-full border rounded p-2" value={editDiscAmount} onChange={(e) => { setEditDiscAmount(Math.max(0, Number(e.target.value))); if (Number(e.target.value) > 0) setEditDiscPercent(0); }} />
-                            </div>
-                            <div>
-                                <label className="block text-sm">Discount Percent (%)</label>
-                                <input type="number" max={100} className="w-full border rounded p-2" value={editDiscPercent} onChange={(e) => { setEditDiscPercent(Math.max(0, Math.min(100, Number(e.target.value)))); if (Number(e.target.value) > 0) setEditDiscAmount(0); }} />
-                            </div>
-                        </div>
-
-                        {(() => {
-                            const subtotal = editItems.reduce((sum, it) => {
-                                const m = menuItems.find((mm) => mm.id === it.menu_item_id);
-                                return sum + (m ? m.price * it.quantity : 0);
-                            }, 0);
-                            const rawDiscount = editDiscPercent > 0 ? (subtotal * editDiscPercent) / 100 : editDiscAmount;
-                            const cappedDiscount = Math.min(rawDiscount, subtotal);
-                            const total = Math.max(0, subtotal - cappedDiscount);
-                            return (
-                                <div className="mt-3 text-sm">
-                                    <div>Subtotal: ${subtotal.toFixed(2)}</div>
-                                    {cappedDiscount > 0 && <div>Discount: -${cappedDiscount.toFixed(2)}</div>}
-                                    <div className="font-semibold">Total: ${total.toFixed(2)}</div>
-                                    {editDiscAmount > subtotal && (
-                                        <div className="text-xs text-red-600">Discount amount cannot exceed subtotal; it will be capped.</div>
-                                    )}
-                                </div>
-                            );
-                        })()}
-
-                        <div className="mt-4 flex justify-end gap-2">
-                            <button className="px-3 py-1 bg-gray-200 rounded" onClick={() => setIsEditOpen(false)}>Cancel</button>
-                            <button className="px-3 py-1 bg-green-600 text-white rounded" onClick={async () => {
-                                if (!editOrder) return;
-                                // cap discount amount to subtotal to avoid exceeding order total
-                                const subtotal = editItems.reduce((sum, it) => {
-                                    const m = menuItems.find((mm) => mm.id === it.menu_item_id);
-                                    return sum + (m ? m.price * it.quantity : 0);
-                                }, 0);
-                                const safeAmount = Math.min(editDiscAmount, subtotal);
-                                const payload: {
-                                    order_items: OrderItem[];
-                                    name: string | null;
-                                    comment: string | null;
-                                    disc_amt: number | null;
-                                    disc_pct: number | null;
-                                } = {
-                                    order_items: editItems,
-                                    name: editName || null,
-                                    comment: (editComment || null),
-                                    disc_amt: editDiscPercent > 0 ? 0 : safeAmount,
-                                    disc_pct: editDiscPercent > 0 ? editDiscPercent : 0,
-                                };
-                                const { error } = await supabase
-                                    .from("orders")
-                                    .update(payload)
-                                    .eq("id", editOrder.id);
-                                if (error) {
-                                    alert("Failed to save order: " + error.message);
-                                    return;
-                                }
-                                // update local state
-                                setOrders(prev => prev.map(o => o.id === editOrder.id ? { ...o, ...payload } as Order : o));
-                                setIsEditOpen(false);
-                            }}>Save</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Pay Modal */}
-            {isPayModalOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded shadow w-11/12 max-w-md max-h-[85vh] overflow-auto p-4 relative">
-                        <button
-                            className="absolute top-2 right-2 px-2 py-1 bg-gray-200 rounded"
-                            onClick={() => setIsPayModalOpen(false)}
-                        >
-                            Close
-                        </button>
-                        <h2 className="text-lg font-semibold mb-2">Mark Paid — Table {payTableId}</h2>
-                        <div className="mb-2 flex items-center gap-2">
-                            <input id="pay-all" type="checkbox" checked={paySelectAll} onChange={togglePaySelectAll} />
-                            <label htmlFor="pay-all">Select All</label>
-                        </div>
-                        <div className="space-y-2">
-                            {payNames.map((n) => (
-                                <label key={n} className="flex items-center gap-2">
-                                    <input
-                                        type="checkbox"
-                                        checked={paySelectedNames.has(n)}
-                                        onChange={() => togglePayName(n)}
-                                    />
-                                    <span>{n}</span>
-                                </label>
-                            ))}
-                            {payNames.length === 0 && (
-                                <p className="text-sm text-gray-500">No served orders to mark as paid.</p>
-                            )}
-                        </div>
-                        <div className="mt-4 flex justify-end gap-2">
-                            <button className="px-3 py-1 bg-gray-200 rounded" onClick={() => setIsPayModalOpen(false)}>
-                                Cancel
-                            </button>
-                            <button
-                                className="px-3 py-1 bg-green-600 text-white rounded disabled:opacity-50"
-                                onClick={confirmPaySelected}
-                                disabled={payNames.length === 0 || (!paySelectAll && paySelectedNames.size === 0)}
-                            >
-                                Confirm Paid
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <PayModal
+                isOpen={isPayModalOpen}
+                tableId={payTableId}
+                names={payNames}
+                selectedNames={paySelectedNames}
+                selectAll={paySelectAll}
+                onToggleName={togglePayName}
+                onToggleAll={togglePaySelectAll}
+                onConfirm={confirmPaySelected}
+                onClose={() => setIsPayModalOpen(false)}
+            />
         </div>
     );
 }
