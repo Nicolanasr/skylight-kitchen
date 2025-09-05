@@ -12,6 +12,9 @@ export type PayModalProps = {
   onToggleAll: () => void;
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
+  amountsByName?: Record<string, number>;
+  selectedTotal?: number;
+  grandTotal?: number;
 };
 
 export default function PayModal({
@@ -24,6 +27,9 @@ export default function PayModal({
   onToggleAll,
   onConfirm,
   onClose,
+  amountsByName,
+  selectedTotal,
+  grandTotal,
 }: PayModalProps) {
   if (!isOpen) return null;
 
@@ -40,15 +46,24 @@ export default function PayModal({
         </div>
         <div className="space-y-2">
           {names.map((n) => (
-            <label key={n} className="flex items-center gap-2">
+            <label key={n} className="flex items-center gap-2 justify-between">
               <input type="checkbox" checked={selectedNames.has(n)} onChange={() => onToggleName(n)} />
-              <span>{n}</span>
+              <span className="flex-1 ml-1">{n}</span>
+              {amountsByName && (
+                <span className="text-sm tabular-nums">${(amountsByName[n] ?? 0).toFixed(2)}</span>
+              )}
             </label>
           ))}
           {names.length === 0 && (
             <p className="text-sm text-gray-500">No served orders to mark as paid.</p>
           )}
         </div>
+        {(amountsByName && names.length > 0) && (
+          <div className="mt-3 border-t pt-2 text-sm flex flex-col gap-1">
+            <div className="flex justify-between"><span>Selected Total</span><span className="font-medium">${(selectedTotal ?? 0).toFixed(2)}</span></div>
+            <div className="flex justify-between"><span>Order Total</span><span className="font-semibold">${(grandTotal ?? 0).toFixed(2)}</span></div>
+          </div>
+        )}
         <div className="mt-4 flex justify-end gap-2">
           <button className="px-3 py-1 bg-gray-200 rounded" onClick={onClose}>
             Cancel
@@ -65,4 +80,3 @@ export default function PayModal({
     </div>
   );
 }
-

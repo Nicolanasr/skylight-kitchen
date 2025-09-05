@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,12 +12,14 @@ import SearchBar from "@/components/kitchen/SearchBar";
 import { useNowTick } from "@/components/kitchen/hooks";
 import { buildHighlighter, buildMenuIndex, formatDateBeirut, getOrderDiscount as utilGetOrderDiscount, getOrderSubtotal as utilGetOrderSubtotal } from "@/components/kitchen/utils";
 import ToastContainer, { Toast } from "@/components/kitchen/ToastContainer";
+import NotificationBell from "@/components/kitchen/NotificationBell";
 
 export default function KitchenPage() {
     const nowTs = useNowTick(60000);
     const [orders, setOrders] = useState<Order[]>([]);
     const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
+    // Date filters removed (default to last 24h in initial fetch)
     const [isReceiptOpen, setIsReceiptOpen] = useState(false);
     const [receiptScope, setReceiptScope] = useState<"table" | "name" | null>(null);
     const [receiptTableId, setReceiptTableId] = useState<string | null>(null);
@@ -34,6 +37,8 @@ export default function KitchenPage() {
     const [payNames, setPayNames] = useState<string[]>([]);
     const [paySelectedNames, setPaySelectedNames] = useState<Set<string>>(new Set());
     const [paySelectAll, setPaySelectAll] = useState<boolean>(true);
+    const [payAmountsByName, setPayAmountsByName] = useState<Record<string, number>>({});
+    const [payGrandTotal, setPayGrandTotal] = useState<number>(0);
     // Collapsible paid tables
     const [paidExpanded, setPaidExpanded] = useState<Record<string, boolean>>({});
     // Collapsible groups removed: always show details expanded
@@ -52,6 +57,9 @@ export default function KitchenPage() {
     const [newOrderMeta, setNewOrderMeta] = useState<Record<number, { expiresAt: number; initialStatus: string }>>({});
     const [toasts, setToasts] = useState<Toast[]>([]);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    // Notification center state (DB-backed)
+    const [notifications, setNotifications] = useState<{ id: number; message: string; created_at: string; type?: string | null; read_at: string | null }[]>([]);
+    const [notifConnected, setNotifConnected] = useState<boolean>(false);
 
     // Helpers and indexes
     const menuIndex = useMemo(() => buildMenuIndex(menuItems), [menuItems]);
@@ -74,18 +82,11 @@ export default function KitchenPage() {
         audioRef.current = a;
     }, []);
 
-    // Fetch orders (latest first) and subscribe to real-time updates
-    useEffect(() => {
-        async function fetchOrders() {
-            const { data } = await supabase
-                .from("orders")
-                .select("id,table_id,name,order_items,status,comment,disc_amt,disc_pct,created_at")
-                .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // only last 24hrs
-                .order("created_at", { ascending: false }); // latest first
-            setOrders(data || []);
-        }
-        fetchOrders();
+    // Unread IDs are derived from notifications with null read_at
+    const unreadIds = useMemo(() => new Set<number>(notifications.filter(n => !n.read_at).map(n => n.id)), [notifications]);
 
+    // Subscribe to orders realtime updates
+    useEffect(() => {
         const channel = supabase.channel("orders");
         // INSERT handler: play sound, toast, and mark as new for 10 minutes
         channel.on(
@@ -125,6 +126,7 @@ export default function KitchenPage() {
                 setNewOrderMeta((prev) => {
                     const meta = prev[updatedOrder.id];
                     if (meta && meta.initialStatus !== updatedOrder.status) {
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
                         const { [updatedOrder.id]: _, ...rest } = prev;
                         return rest;
                     }
@@ -141,6 +143,43 @@ export default function KitchenPage() {
                 console.log("Channel removed");
             });
         };
+    }, []);
+
+    // Initial fetch: last 24 hours
+    useEffect(() => {
+        async function fetchOrders() {
+            const { data } = await supabase
+                .from("orders")
+                .select("id,table_id,name,order_items,status,comment,disc_amt,disc_pct,created_at")
+                .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+                .order("created_at", { ascending: false });
+            setOrders(data || []);
+        }
+        fetchOrders();
+    }, []);
+
+    // Notifications feed: fetch and subscribe
+    useEffect(() => {
+        async function fetchNotifications() {
+            const { data } = await supabase
+                .from("notifications")
+                .select("id,message,created_at,type,read_at")
+                .order("created_at", { ascending: false })
+                .limit(200);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            setNotifications((data as any) || []);
+        }
+        fetchNotifications();
+
+        // Broadcast channel for realtime without DB replication
+        const bc = supabase.channel('kitchen:notifications', { config: { broadcast: { self: false } } });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        bc.on('broadcast', { event: 'new' }, (payload: any) => {
+            const n = payload.payload as { id?: number; message: string; created_at: string; read_at?: string | null; type?: string | null };
+            setNotifications((prev) => [{ id: n.id ?? Date.now(), message: n.message, created_at: n.created_at, type: n.type ?? 'order.new', read_at: n.read_at ?? null }, ...prev]);
+        });
+        bc.subscribe((status) => setNotifConnected(status === 'SUBSCRIBED'));
+        return () => { supabase.removeChannel(bc); };
     }, []);
 
     // Periodically prune expired new-order flags
@@ -251,6 +290,21 @@ export default function KitchenPage() {
         setPayNames(names);
         setPaySelectedNames(new Set(names));
         setPaySelectAll(true);
+        // compute amounts per name and grand total for served orders
+        const amounts: Record<string, number> = {};
+        let gtotal = 0;
+        orders
+            .filter((o) => o.table_id === tableId && o.status === 'served')
+            .forEach((o) => {
+                const subtotal = getOrderSubtotal(o);
+                const discount = getOrderDiscount(o, subtotal);
+                const total = Math.max(0, subtotal - discount);
+                const n = o.name && o.name.trim() ? o.name.trim() : 'Unknown';
+                amounts[n] = (amounts[n] ?? 0) + total;
+                gtotal += total;
+            });
+        setPayAmountsByName(amounts);
+        setPayGrandTotal(gtotal);
         setIsPayModalOpen(true);
     }, [orders]);
 
@@ -379,11 +433,14 @@ export default function KitchenPage() {
 
     const filteredOrders = useMemo(() => {
         if (!q) return orders;
+        const tableMatchInfo = /^table\s+(\S+)/i.exec(q);
+        const orderIdMatch = /^#?(\d+)$/i.exec(q);
         return orders.filter((order) => {
-            const tableMatch = order.table_id.toLowerCase().includes(q);
             const nameMatch = (order.name || "").toLowerCase().includes(q);
             const itemMatch = (order.order_items || []).some((it) => (menuNameById.get(it.menu_item_id) || "").includes(q));
-            return tableMatch || nameMatch || itemMatch;
+            const idMatch = orderIdMatch ? order.id === Number(orderIdMatch[1]) : false;
+            const tableMatch = tableMatchInfo ? order.table_id.toLowerCase() === tableMatchInfo[1].toLowerCase() : false;
+            return nameMatch || itemMatch || idMatch || tableMatch;
         });
     }, [orders, q, menuNameById]);
 
@@ -413,7 +470,24 @@ export default function KitchenPage() {
 
     return (
         <div className="p-4 max-w-6xl mx-auto">
-            <h1 className="text-2xl font-bold mb-4">Kitchen Orders</h1>
+            <div className="flex items-center justify-between mb-4">
+                <h1 className="text-2xl font-bold">Kitchen Orders</h1>
+                <NotificationBell
+                    items={notifications}
+                    unreadIds={unreadIds}
+                    onMarkRead={async (id) => {
+                        await supabase.rpc('mark_notification_read', { n_id: id });
+                        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read_at: new Date().toISOString() } : n));
+                    }}
+                    onMarkAllRead={async () => {
+                        await supabase.rpc('mark_all_notifications_read');
+                        const ts = new Date().toISOString();
+                        setNotifications(prev => prev.map(n => n.read_at ? n : { ...n, read_at: ts }));
+                    }}
+                    nowTs={nowTs}
+                    connected={notifConnected}
+                />
+            </div>
             <SearchBar value={searchQuery} onDebouncedChange={setSearchQuery} onClear={() => setSearchQuery("")} />
 
             {statuses.map((status) => (
@@ -497,6 +571,14 @@ export default function KitchenPage() {
                 onToggleAll={togglePaySelectAll}
                 onConfirm={confirmPaySelected}
                 onClose={() => setIsPayModalOpen(false)}
+                amountsByName={payAmountsByName}
+                selectedTotal={useMemo(() => {
+                    if (paySelectAll) return payGrandTotal;
+                    let sum = 0;
+                    for (const n of paySelectedNames) sum += payAmountsByName[n] ?? 0;
+                    return sum;
+                }, [paySelectAll, paySelectedNames, payAmountsByName, payGrandTotal])}
+                grandTotal={payGrandTotal}
             />
             <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
         </div>

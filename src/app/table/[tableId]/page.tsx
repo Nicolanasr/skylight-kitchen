@@ -138,11 +138,36 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             name: orderName || null,
         };
 
-        const { error } = await supabase.from('orders').insert([orderPayload]);
+        const { data: inserted, error } = await supabase
+            .from('orders')
+            .insert([orderPayload])
+            .select('id, table_id')
+            .single();
 
         if (error) {
             alert('Error submitting order: ' + error.message);
         } else {
+            // Insert a notification row for persistence (no replication needed)
+            try {
+                if (inserted?.id) {
+                    await supabase.from('notifications').insert([
+                        {
+                            type: 'order.new',
+                            message: `New order #${inserted.id} — Table ${tableId}`,
+                            order_id: inserted.id,
+                            table_id: tableId,
+                            payload: { name: orderName || null }
+                        }
+                    ]);
+                }
+            } catch (_e) { /* ignore */ }
+            // Broadcast to kitchen so UI updates instantly without DB replication
+            try {
+                const ch = supabase.channel('kitchen:notifications', { config: { broadcast: { self: false } } });
+                await ch.subscribe();
+                await ch.send({ type: 'broadcast', event: 'new', payload: { message: `New order #${inserted?.id ?? ''} — Table ${tableId}`, created_at: new Date().toISOString(), type: 'order.new', read_at: null } });
+                await supabase.removeChannel(ch);
+            } catch (_e) { /* ignore */ }
             setCart({});
             setComment('');
             setOrderName('');
