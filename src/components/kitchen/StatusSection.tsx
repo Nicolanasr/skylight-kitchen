@@ -21,6 +21,7 @@ export type StatusSectionProps = {
   onOpenReceiptForName: (tableId: string) => void;
   onOpenPayModal: (tableId: string) => void;
   nowTs?: number;
+  isOrderNew?: (order: Order) => boolean;
 };
 
 function StatusSectionBase({
@@ -39,6 +40,7 @@ function StatusSectionBase({
   onOpenReceiptForName,
   onOpenPayModal,
   nowTs,
+  isOrderNew,
 }: StatusSectionProps) {
   const tableEntries = Object.entries(tablesMap).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" }));
 
@@ -67,6 +69,7 @@ function StatusSectionBase({
                   onEdit={onEdit}
                   updateStatus={updateStatus}
                   nowTs={nowTs}
+                  isOrderNew={isOrderNew}
                 />
               ))}
           </div>

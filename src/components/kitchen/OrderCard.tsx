@@ -14,6 +14,7 @@ export type OrderCardProps = {
   onEdit: (order: Order) => void;
   updateStatus: (order: Order, nextStatus: string) => void | Promise<void>;
   nowTs?: number;
+  isNew?: boolean;
 };
 
 function OrderCardBase({
@@ -27,6 +28,7 @@ function OrderCardBase({
   onEdit,
   updateStatus,
   nowTs,
+  isNew,
 }: OrderCardProps) {
   const createdAt = new Date(`${order.created_at}Z`).getTime();
   const diffMinutes = Math.floor((((nowTs ?? Date.now()) - createdAt) / 60000));
@@ -39,8 +41,14 @@ function OrderCardBase({
   return (
     <div className="p-2 mb-2 border rounded bg-white">
       <div className="text-sm">
-        <div className="font-medium">
-          #{order.id} - {formatDate(order.created_at)} — <span className={timeColor}>{diffMinutes} min ago</span>
+        <div className="font-medium flex items-center gap-2">
+          <span>
+            #{order.id} - {formatDate(order.created_at)} — <span className={timeColor}>{diffMinutes} min ago</span>
+          </span>
+          {/** New badge */}
+          {Boolean(isNew) && (
+            <span className="inline-block text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 border border-red-200">New</span>
+          )}
         </div>
         {order.comment && <div className="text-gray-700">Comments: {order.comment}</div>}
         <ul className="ml-4 list-disc mt-1">

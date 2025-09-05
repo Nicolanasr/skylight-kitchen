@@ -16,6 +16,7 @@ export type NameGroupProps = {
   onEdit: (order: Order) => void;
   updateStatus: (order: Order, nextStatus: string) => void | Promise<void>;
   nowTs?: number;
+  isOrderNew?: (order: Order) => boolean;
 };
 
 function NameGroupBase({
@@ -30,6 +31,7 @@ function NameGroupBase({
   onEdit,
   updateStatus,
   nowTs,
+  isOrderNew,
 }: NameGroupProps) {
   const sorted = [...orders].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
@@ -49,6 +51,7 @@ function NameGroupBase({
           onEdit={onEdit}
           updateStatus={updateStatus}
           nowTs={nowTs}
+          isNew={isOrderNew ? isOrderNew(order) : false}
         />
       ))}
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Order, OrderItem, MenuItem } from "@/types";
 import ReceiptModal from "@/components/kitchen/ReceiptModal";
@@ -10,6 +10,7 @@ import StatusSection from "@/components/kitchen/StatusSection";
 import SearchBar from "@/components/kitchen/SearchBar";
 import { useNowTick } from "@/components/kitchen/hooks";
 import { buildHighlighter, buildMenuIndex, formatDateBeirut, getOrderDiscount as utilGetOrderDiscount, getOrderSubtotal as utilGetOrderSubtotal } from "@/components/kitchen/utils";
+import ToastContainer, { Toast } from "@/components/kitchen/ToastContainer";
 
 export default function KitchenPage() {
     const nowTs = useNowTick(60000);
@@ -47,6 +48,10 @@ export default function KitchenPage() {
     const [editDiscPercent, setEditDiscPercent] = useState<number>(0);
     const [addItemId, setAddItemId] = useState<number | null>(null);
     const [addQty, setAddQty] = useState<number>(1);
+    // New order indicators + toast/audio
+    const [newOrderMeta, setNewOrderMeta] = useState<Record<number, { expiresAt: number; initialStatus: string }>>({});
+    const [toasts, setToasts] = useState<Toast[]>([]);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
 
     // Helpers and indexes
     const menuIndex = useMemo(() => buildMenuIndex(menuItems), [menuItems]);
@@ -62,6 +67,13 @@ export default function KitchenPage() {
         fetchMenu();
     }, []);
 
+    // Preload notification audio
+    useEffect(() => {
+        const a = new Audio("/bell_ring.mp3");
+        a.load();
+        audioRef.current = a;
+    }, []);
+
     // Fetch orders (latest first) and subscribe to real-time updates
     useEffect(() => {
         async function fetchOrders() {
@@ -75,21 +87,52 @@ export default function KitchenPage() {
         fetchOrders();
 
         const channel = supabase.channel("orders");
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const handler = (payload: any) => {
-            const updatedOrder = payload.new as Order;
-            setOrders((prev) => {
-                const index = prev.findIndex((o) => o.id === updatedOrder.id);
-                if (index === -1) return [updatedOrder, ...prev];
-                const newOrders = [...prev];
-                newOrders[index] = updatedOrder;
-                return newOrders;
-            });
-        };
-        channel
-            .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders" }, handler)
-            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders" }, handler)
-            .subscribe();
+        // INSERT handler: play sound, toast, and mark as new for 10 minutes
+        channel.on(
+            "postgres_changes",
+            { event: "INSERT", schema: "public", table: "orders" },
+            (payload) => {
+                const newOrder = payload.new as Order;
+                setOrders((prev) => {
+                    const idx = prev.findIndex((o) => o.id === newOrder.id);
+                    if (idx === -1) return [newOrder, ...prev];
+                    const copy = [...prev];
+                    copy[idx] = newOrder;
+                    return copy;
+                });
+                const createdTs = new Date(`${newOrder.created_at}Z`).getTime();
+                const expiresAt = createdTs + 10 * 60 * 1000;
+                setNewOrderMeta((prev) => ({ ...prev, [newOrder.id]: { expiresAt, initialStatus: newOrder.status } }));
+                const id = Date.now();
+                setToasts((prev) => [...prev, { id, message: `New order #${newOrder.id} — Table ${newOrder.table_id}` }]);
+                setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000);
+                audioRef.current?.play().catch(() => { });
+            }
+        );
+        // UPDATE handler: update list and clear new flag if status changed
+        channel.on(
+            "postgres_changes",
+            { event: "UPDATE", schema: "public", table: "orders" },
+            (payload) => {
+                const updatedOrder = payload.new as Order;
+                setOrders((prev) => {
+                    const index = prev.findIndex((o) => o.id === updatedOrder.id);
+                    if (index === -1) return [updatedOrder, ...prev];
+                    const newOrders = [...prev];
+                    newOrders[index] = updatedOrder;
+                    return newOrders;
+                });
+                setNewOrderMeta((prev) => {
+                    const meta = prev[updatedOrder.id];
+                    if (meta && meta.initialStatus !== updatedOrder.status) {
+                        const { [updatedOrder.id]: _, ...rest } = prev;
+                        return rest;
+                    }
+                    return prev;
+                });
+            }
+        );
+        channel.subscribe();
 
         // Cleanup must be synchronous
         return () => {
@@ -99,6 +142,18 @@ export default function KitchenPage() {
             });
         };
     }, []);
+
+    // Periodically prune expired new-order flags
+    useEffect(() => {
+        setNewOrderMeta((prev) => {
+            const next: typeof prev = {};
+            for (const k in prev) {
+                const id = Number(k);
+                if (prev[id].expiresAt > nowTs) next[id] = prev[id];
+            }
+            return next;
+        });
+    }, [nowTs]);
 
     // Convert UTC to Beirut time
     const formatDate = useCallback((utcDate: string) => formatDateBeirut(utcDate), []);
@@ -346,6 +401,16 @@ export default function KitchenPage() {
         return map;
     }, [filteredOrders]);
 
+    const isOrderNew = useCallback(
+        (order: Order) => {
+            const meta = newOrderMeta[order.id];
+            if (!meta) return false;
+            if (order.status !== meta.initialStatus) return false;
+            return nowTs < meta.expiresAt;
+        },
+        [newOrderMeta, nowTs]
+    );
+
     return (
         <div className="p-4 max-w-6xl mx-auto">
             <h1 className="text-2xl font-bold mb-4">Kitchen Orders</h1>
@@ -379,6 +444,7 @@ export default function KitchenPage() {
                     onOpenReceiptForName={openReceiptForName}
                     onOpenPayModal={openPayModal}
                     nowTs={nowTs}
+                    isOrderNew={isOrderNew}
                 />
             ))}
 
@@ -432,6 +498,7 @@ export default function KitchenPage() {
                 onConfirm={confirmPaySelected}
                 onClose={() => setIsPayModalOpen(false)}
             />
+            <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
         </div>
     );
 }
