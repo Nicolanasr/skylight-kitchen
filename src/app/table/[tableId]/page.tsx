@@ -136,6 +136,8 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                 .select('id')
                 .eq('slug', tenantSlug)
                 .single();
+            console.log("123")
+            console.log(org)
             orgId = (org as { id: number } | null)?.id ?? null;
         } catch (_e) {
             // ignore and proceed; insert may fail if RLS requires org_id
@@ -151,7 +153,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             comment: comment || null,
             name: orderName || null,
             // include org_id when available for RLS/tenant scoping
-            ...(orgId ? { org_id: orgId } : {}),
+            ...(orgId ? { organization_id: orgId } : {}),
         };
 
         const { data: inserted, error } = await supabase
