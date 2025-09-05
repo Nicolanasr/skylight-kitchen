@@ -59,7 +59,8 @@ export default function KitchenPage() {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     // Notification center state (DB-backed)
     const [notifications, setNotifications] = useState<{ id: number; message: string; created_at: string; type?: string | null; read_at: string | null }[]>([]);
-    const [notifConnected, setNotifConnected] = useState<boolean>(false);
+    const [notifBcConnected, setNotifBcConnected] = useState<boolean>(false);
+    const [notifDbConnected, setNotifDbConnected] = useState<boolean>(false);
 
     // Helpers and indexes
     const menuIndex = useMemo(() => buildMenuIndex(menuItems), [menuItems]);
@@ -178,9 +179,48 @@ export default function KitchenPage() {
             const n = payload.payload as { id?: number; message: string; created_at: string; read_at?: string | null; type?: string | null };
             setNotifications((prev) => [{ id: n.id ?? Date.now(), message: n.message, created_at: n.created_at, type: n.type ?? 'order.new', read_at: n.read_at ?? null }, ...prev]);
         });
-        bc.subscribe((status) => setNotifConnected(status === 'SUBSCRIBED'));
-        return () => { supabase.removeChannel(bc); };
+        bc.subscribe((status) => setNotifBcConnected(status === 'SUBSCRIBED'));
+
+        // Also try Postgres Changes (if replication is later enabled)
+        const pc = supabase.channel('postgres:notifications');
+        pc.on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const n = payload.new as any;
+            if (!n) return;
+            setNotifications((prev) => {
+                const idx = prev.findIndex((x) => x.id === n.id);
+                if (idx === -1) return [n, ...prev];
+                const copy = [...prev];
+                copy[idx] = { ...copy[idx], ...n };
+                return copy;
+            });
+        });
+        pc.subscribe((status) => setNotifDbConnected(status === 'SUBSCRIBED'));
+
+        return () => { supabase.removeChannel(bc); supabase.removeChannel(pc); };
     }, []);
+
+    // Fallback polling when not connected to any realtime channel
+    useEffect(() => {
+        const anyConnected = notifBcConnected || notifDbConnected;
+        if (anyConnected) return; // polling only when not connected
+        let stop = false;
+        async function poll() {
+            if (stop) return;
+            try {
+                const { data } = await supabase
+                    .from('notifications')
+                    .select('id,message,created_at,type,read_at')
+                    .order('created_at', { ascending: false })
+                    .limit(200);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                setNotifications((data as any) || []);
+            } catch {}
+            setTimeout(poll, 5000);
+        }
+        poll();
+        return () => { stop = true; };
+    }, [notifBcConnected, notifDbConnected]);
 
     // Periodically prune expired new-order flags
     useEffect(() => {
@@ -485,7 +525,7 @@ export default function KitchenPage() {
                         setNotifications(prev => prev.map(n => n.read_at ? n : { ...n, read_at: ts }));
                     }}
                     nowTs={nowTs}
-                    connected={notifConnected}
+                    connected={notifBcConnected || notifDbConnected}
                 />
             </div>
             <SearchBar value={searchQuery} onDebouncedChange={setSearchQuery} onClear={() => setSearchQuery("")} />
