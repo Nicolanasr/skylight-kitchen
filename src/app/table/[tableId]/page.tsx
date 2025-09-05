@@ -127,6 +127,20 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
 
         setIsSubmitting(true);
 
+        // Resolve organization id by tenant slug
+        const tenantSlug = process.env.NEXT_PUBLIC_DEFAULT_TENANT || 'skylightvillage';
+        let orgId: number | null = null;
+        try {
+            const { data: org } = await supabase
+                .from('organizations')
+                .select('id')
+                .eq('slug', tenantSlug)
+                .single();
+            orgId = (org as { id: number } | null)?.id ?? null;
+        } catch (_e) {
+            // ignore and proceed; insert may fail if RLS requires org_id
+        }
+
         const orderPayload = {
             table_id: tableId,
             order_items: Object.entries(cart).map(([id, qty]) => ({
@@ -136,6 +150,8 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             status: 'pending',
             comment: comment || null,
             name: orderName || null,
+            // include org_id when available for RLS/tenant scoping
+            ...(orgId ? { org_id: orgId } : {}),
         };
 
         const { data: inserted, error } = await supabase
