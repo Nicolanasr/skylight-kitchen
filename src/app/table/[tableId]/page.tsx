@@ -128,17 +128,28 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
         setIsSubmitting(true);
 
         // Resolve organization id by tenant slug
-        const tenantSlug = process.env.NEXT_PUBLIC_DEFAULT_TENANT || 'skylightvillage';
+        // Priority: URL prefix (/skylightvillage/...), then env, then hardcoded default
+        const tenantSlug = (() => {
+            try {
+                const path = typeof window !== 'undefined' ? window.location.pathname : '';
+                const segs = path.split('/').filter(Boolean);
+                const first = segs[0];
+                if (first && first !== 'table' && first !== 'kitchen') return first;
+            } catch (_e) { /* ignore */ }
+            return process.env.NEXT_PUBLIC_DEFAULT_TENANT || 'skylightvillage';
+        })();
         let orgId: number | null = null;
         try {
-            const { data: org } = await supabase
+            const { data: org, error } = await supabase
                 .from('organizations')
                 .select('id')
                 .eq('slug', tenantSlug)
-                .single();
-            console.log("123")
-            console.log(org)
-            orgId = (org as { id: number } | null)?.id ?? null;
+                .limit(1)
+                .maybeSingle();
+            if (!error) {
+                orgId = (org as { id: number } | null)?.id ?? null;
+            }
+            // If error exists (e.g., RLS), ignore and proceed
         } catch (_e) {
             // ignore and proceed; insert may fail if RLS requires org_id
         }
