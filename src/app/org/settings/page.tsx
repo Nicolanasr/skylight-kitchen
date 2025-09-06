@@ -6,7 +6,7 @@ import { useOrganization } from '@/components/useOrganization';
 
 export default function OrgSettingsPage() {
   const { organizationId, slug, loading, error } = useOrganization();
-  type Org = { id: string; name: string; slug: string };
+  type Org = { id: string; name: string; slug: string; logo_url?: string | null; brand_name?: string | null; receipt_header?: string | null; receipt_footer?: string | null; tax_rate?: number | null; service_rate?: number | null };
   type Venue = { id: string; name: string; slug: string };
   type Member = { id: string; user_id: string; role: string };
   const [org, setOrg] = useState<Org | null>(null);
@@ -20,7 +20,7 @@ export default function OrgSettingsPage() {
   useEffect(() => {
     if (!organizationId) return;
     async function load() {
-      const { data: orgRow } = await supabase.from('organizations').select('id,name,slug').eq('id', organizationId).maybeSingle();
+      const { data: orgRow } = await supabase.from('organizations').select('id,name,slug,logo_url,brand_name,receipt_header,receipt_footer,tax_rate,service_rate').eq('id', organizationId).maybeSingle();
       setOrg((orgRow as Org | null) ?? null);
       const { data: v } = await supabase.from('venues').select('id,name,slug').eq('organization_id', organizationId).order('created_at', { ascending: true });
       setVenues((v as Venue[] | null) ?? []);
@@ -53,6 +53,61 @@ export default function OrgSettingsPage() {
           <div className="font-medium">{org.name}</div>
           <div className="text-sm text-gray-600">Slug: {org.slug}</div>
           <div className="text-sm text-gray-600">ID: {org.id}</div>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm mb-1">Brand Name (for header/receipts)</label>
+              <input className="w-full border rounded p-2" value={org.brand_name ?? ''} onChange={(e) => setOrg({ ...(org as Org), brand_name: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Logo URL</label>
+              <input className="w-full border rounded p-2" placeholder="https://..." value={org.logo_url ?? ''} onChange={(e) => setOrg({ ...(org as Org), logo_url: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Receipt Header (optional)</label>
+              <input className="w-full border rounded p-2" value={org.receipt_header ?? ''} onChange={(e) => setOrg({ ...(org as Org), receipt_header: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Receipt Footer (optional)</label>
+              <input className="w-full border rounded p-2" value={org.receipt_footer ?? ''} onChange={(e) => setOrg({ ...(org as Org), receipt_footer: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Tax Rate (%)</label>
+              <input type="number" className="w-full border rounded p-2" value={org.tax_rate ?? 0} onChange={(e) => setOrg({ ...(org as Org), tax_rate: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Service Rate (%)</label>
+              <input type="number" className="w-full border rounded p-2" value={org.service_rate ?? 0} onChange={(e) => setOrg({ ...(org as Org), service_rate: Number(e.target.value) })} />
+            </div>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button
+              className="px-3 py-2 rounded text-white bg-green-600 hover:bg-green-700"
+              onClick={async () => {
+                if (!organizationId || !org) return;
+                const { error: err } = await supabase
+                  .from('organizations')
+                  .update({
+                    brand_name: org.brand_name ?? null,
+                    logo_url: org.logo_url ?? null,
+                    receipt_header: org.receipt_header ?? null,
+                    receipt_footer: org.receipt_footer ?? null,
+                    tax_rate: org.tax_rate ?? 0,
+                    service_rate: org.service_rate ?? 0,
+                  })
+                  .eq('id', organizationId);
+                if (err) alert(err.message); else alert('Saved branding settings');
+              }}
+            >
+              Save Branding
+            </button>
+            {org.logo_url && (
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <span>Preview:</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={org.logo_url} alt="Logo" className="h-8 object-contain" />
+              </div>
+            )}
+          </div>
         </div>
       )}
 

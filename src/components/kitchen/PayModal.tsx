@@ -10,7 +10,7 @@ export type PayModalProps = {
   selectAll: boolean;
   onToggleName: (name: string) => void;
   onToggleAll: () => void;
-  onConfirm: () => void | Promise<void>;
+  onConfirm: (details: { method: string; cashier?: string | null }) => void | Promise<void>;
   onClose: () => void;
   amountsByName?: Record<string, number>;
   selectedTotal?: number;
@@ -31,6 +31,8 @@ export default function PayModal({
   selectedTotal,
   grandTotal,
 }: PayModalProps) {
+  const [method, setMethod] = React.useState<string>('cash');
+  const [cashier, setCashier] = React.useState<string>('');
   if (!isOpen) return null;
 
   return (
@@ -64,13 +66,27 @@ export default function PayModal({
             <div className="flex justify-between"><span>Order Total</span><span className="font-semibold">${(grandTotal ?? 0).toFixed(2)}</span></div>
           </div>
         )}
+        <div className="mt-3 grid grid-cols-1 gap-2">
+          <div>
+            <label className="block text-sm mb-1">Payment Method</label>
+            <select className="w-full border rounded p-2" value={method} onChange={(e) => setMethod(e.target.value)}>
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm mb-1">Cashier (optional)</label>
+            <input className="w-full border rounded p-2" placeholder="Name or initials" value={cashier} onChange={(e) => setCashier(e.target.value)} />
+          </div>
+        </div>
         <div className="mt-4 flex justify-end gap-2">
           <button className="px-3 py-1 bg-gray-200 rounded" onClick={onClose}>
             Cancel
           </button>
           <button
             className="px-3 py-1 bg-green-600 text-white rounded disabled:opacity-50"
-            onClick={onConfirm}
+            onClick={() => onConfirm({ method, cashier: cashier || null })}
             disabled={names.length === 0 || (!selectAll && selectedNames.size === 0)}
           >
             Confirm Paid

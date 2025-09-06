@@ -18,6 +18,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
     const { tableId } = React.use(params);
     const { slug } = getCurrentTenant();
     const [organizationId, setOrganizationId] = useState<string | null>(null);
+    const [orgBrand, setOrgBrand] = useState<{ brand_name?: string | null; logo_url?: string | null } | null>(null);
 
     const [menu, setMenu] = useState<MenuItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -44,6 +45,21 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
         resolveOrg();
         return () => { cancelled = true; };
     }, [slug]);
+
+    // Fetch org branding
+    useEffect(() => {
+        if (!organizationId) return;
+        let cancelled = false;
+        (async () => {
+            const { data } = await supabase
+                .from('organizations')
+                .select('brand_name,logo_url')
+                .eq('id', organizationId)
+                .maybeSingle();
+            if (!cancelled) setOrgBrand((data as { brand_name?: string | null; logo_url?: string | null } | null) ?? null);
+        })();
+        return () => { cancelled = true; };
+    }, [organizationId]);
 
     // Fetch previous names for this table
     useEffect(() => {
@@ -123,7 +139,8 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
     }, [tableId, cart, comment, orderName]);
 
 
-    const categories = Array.from(new Set(menu.map(item => item.category)));
+    const visibleMenu = menu.filter(item => (item.is_available ?? true));
+    const categories = Array.from(new Set(visibleMenu.map(item => item.category)));
 
     const addToCart = (id: number) => {
         setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
@@ -211,13 +228,17 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
     return (
         <div className="relative min-h-screen bg-gray-50">
             <header className="flex items-center justify-center py-4 bg-white shadow sticky top-0 z-50">
-                <Image
-                    src="/Skylight-logo.png"
-                    alt="Restaurant Logo"
-                    width={150}
-                    height={50}
-                    className="object-contain invert-100"
-                />
+                {orgBrand?.logo_url ? (
+                    <Image
+                        src={orgBrand.logo_url}
+                        alt={orgBrand.brand_name || 'Logo'}
+                        width={150}
+                        height={50}
+                        className="object-contain"
+                    />
+                ) : (
+                    <div className="text-xl font-semibold">{orgBrand?.brand_name || 'Welcome'}</div>
+                )}
             </header>
 
             <main className="p-4 max-w-5xl mx-auto">
@@ -243,7 +264,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                 </div>
 
                 {/* Menu Grid */}
-                {(selectedCategory ? menu.filter(item => item.category === selectedCategory) : menu).map(item => {
+                {(selectedCategory ? visibleMenu.filter(item => item.category === selectedCategory) : visibleMenu).map(item => {
                     const qty = cart[item.id] || 0;
                     if (item.category === null) return null;
                     return (
@@ -443,11 +464,11 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                             </div>
 
                                             <ul className="mb-2">
-                                                {order.order_items.map((oi: OrderItem) => {
+                                                {order.order_items.map((oi: OrderItem, idx: number) => {
                                                     const item = menu.find(m => m.id === oi.menu_item_id);
                                                     if (!item) return null;
                                                     return (
-                                                        <li key={Math.random()} className="flex justify-between">
+                                                        <li key={`${order.id}-${oi.menu_item_id}-${idx}`} className="flex justify-between">
                                                             <span>{item.name} x {oi.quantity}</span>
                                                             <span>${(item.price * oi.quantity).toFixed(2)}</span>
                                                         </li>

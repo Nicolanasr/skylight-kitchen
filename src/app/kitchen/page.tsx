@@ -16,6 +16,7 @@ import { useNowTick } from "@/components/kitchen/hooks";
 import { buildHighlighter, buildMenuIndex, formatDateBeirut, getOrderDiscount as utilGetOrderDiscount, getOrderSubtotal as utilGetOrderSubtotal } from "@/components/kitchen/utils";
 import ToastContainer, { Toast } from "@/components/kitchen/ToastContainer";
 import NotificationBell from "@/components/kitchen/NotificationBell";
+import KeepAwakeToggle from "@/components/kitchen/KeepAwakeToggle";
 
 export default function KitchenPage() {
     const { organizationId, loading: orgLoading, slug, isMember } = useOrganization();
@@ -23,6 +24,11 @@ export default function KitchenPage() {
     const [orders, setOrders] = useState<Order[]>([]);
     const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
+    // Quick filters
+    const [sinceHours, setSinceHours] = useState<number>(24);
+    const [onlyNew, setOnlyNew] = useState<boolean>(false);
+    const [onlyComments, setOnlyComments] = useState<boolean>(false);
+    const [tableFilter, setTableFilter] = useState<string>("");
     // Date filters removed (default to last 24h in initial fetch)
     const [isReceiptOpen, setIsReceiptOpen] = useState(false);
     const [receiptScope, setReceiptScope] = useState<"table" | "name" | null>(null);
@@ -65,6 +71,8 @@ export default function KitchenPage() {
     const [notifications, setNotifications] = useState<{ id: number; message: string; created_at: string; type?: string | null; read_at: string | null }[]>([]);
     const [notifBcConnected, setNotifBcConnected] = useState<boolean>(false);
     const [notifDbConnected, setNotifDbConnected] = useState<boolean>(false);
+    // Org branding and rates
+    const [orgBrand, setOrgBrand] = useState<{ brand_name?: string | null; logo_url?: string | null; receipt_header?: string | null; receipt_footer?: string | null; tax_rate?: number | null; service_rate?: number | null } | null>(null);
 
     // Helpers and indexes
     const menuIndex = useMemo(() => buildMenuIndex(menuItems), [menuItems]);
@@ -87,6 +95,21 @@ export default function KitchenPage() {
         a.load();
         audioRef.current = a;
     }, []);
+
+    // Fetch org branding and rates
+    useEffect(() => {
+        if (!organizationId) return;
+        let cancelled = false;
+        (async () => {
+            const { data } = await supabase
+                .from('organizations')
+                .select('brand_name,logo_url,receipt_header,receipt_footer,tax_rate,service_rate')
+                .eq('id', organizationId)
+                .maybeSingle();
+            if (!cancelled) setOrgBrand((data as typeof orgBrand) ?? null);
+        })();
+        return () => { cancelled = true; };
+    }, [organizationId]);
 
     // Unread IDs are derived from notifications with null read_at
     const unreadIds = useMemo(() => new Set<number>(notifications.filter(n => !n.read_at).map(n => n.id)), [notifications]);
@@ -377,7 +400,7 @@ export default function KitchenPage() {
         }
     }, [paySelectAll, payNames]);
 
-    const confirmPaySelected = useCallback(async () => {
+    const confirmPaySelected = useCallback(async ({ method, cashier }: { method: string; cashier?: string | null }) => {
         if (!payTableId) return;
         const eligible = orders.filter(
             (o) => o.table_id === payTableId && o.status === "served" && (paySelectAll || paySelectedNames.has(o.name && o.name.trim() ? o.name.trim() : "Unknown"))
@@ -387,6 +410,21 @@ export default function KitchenPage() {
             setIsPayModalOpen(false);
             return;
         }
+        // Attempt to record payment row (optional schema)
+        try {
+            const total = paySelectAll ? payGrandTotal : Array.from(paySelectedNames).reduce((s, n) => s + (payAmountsByName[n] ?? 0), 0);
+            await supabase.from('payments')
+                .insert([{
+                    organization_id: organizationId,
+                    table_id: payTableId,
+                    names: paySelectAll ? null : Array.from(paySelectedNames),
+                    amount: total,
+                    method,
+                    cashier: cashier ?? null,
+                }]);
+        } catch (_e) {
+            // ignore if table does not exist; we'll still mark orders paid
+        }
         const { error } = await supabase.from("orders").update({ status: "paid" }).in("id", ids);
         if (!error) {
             // update local state optimistically
@@ -395,7 +433,7 @@ export default function KitchenPage() {
             alert("Failed to mark paid: " + error.message);
         }
         setIsPayModalOpen(false);
-    }, [payTableId, orders, paySelectAll, paySelectedNames]);
+    }, [payTableId, orders, paySelectAll, paySelectedNames, payGrandTotal, payAmountsByName, organizationId]);
 
     // Compute selected total for PayModal via a hook to keep hooks order stable
     const paySelectedTotal = useMemo(() => {
@@ -422,6 +460,13 @@ export default function KitchenPage() {
             .join("");
 
         const subtotal = receiptItems.reduce((s, i) => s + i.lineTotal, 0);
+        const discount = receiptDiscount;
+        const afterDiscount = Math.max(0, subtotal - discount);
+        const taxRate = Math.max(0, orgBrand?.tax_rate ?? 0);
+        const serviceRate = Math.max(0, orgBrand?.service_rate ?? 0);
+        const taxAmt = (afterDiscount * taxRate) / 100;
+        const serviceAmt = (afterDiscount * serviceRate) / 100;
+        const grand = afterDiscount + taxAmt + serviceAmt;
 
         const html = `<!doctype html><html><head><meta charset="utf-8"/><title>${title}</title>
         <style>
@@ -439,28 +484,28 @@ export default function KitchenPage() {
             .total { font-weight: 700; }
             h1 { font-size: 14px; margin: 0 0 6px; }
             .meta { font-size: 11px; margin-bottom: 6px; }
+            .brand { margin-bottom: 6px; }
+            .brand img { max-height: 40px; object-fit: contain; }
         </style></head><body>
             <div class="wrap">
             <div class="center">
-                <h1>Receipt</h1>
+                <div class="brand">${orgBrand?.logo_url ? `<img src='${orgBrand.logo_url}' alt='Logo' />` : (orgBrand?.brand_name ? `<strong>${orgBrand.brand_name}</strong>` : '')}</div>
+                <h1>Receipt${orgBrand?.brand_name ? ` — ${orgBrand.brand_name}` : ''}</h1>
                 <div class="meta muted">${new Date().toLocaleString()}</div>
                 <div class="meta">${title}</div>
+                ${orgBrand?.receipt_header ? `<div class=\"meta\">${orgBrand.receipt_header}</div>` : ''}
             </div>
             <div class="line"></div>
             ${rowsHtml || `<div class='muted'>No items</div>`}
             <div class="line"></div>
             <div class="row"><div class="name"></div><div class="qty">Subtotal</div><div class="amt">$${subtotal.toFixed(2)}</div></div>
-            <div class="row"><div class="name"></div><div class="qty">Discount</div><div class="amt">-$${receiptDiscount.toFixed(2)}</div></div>
-            <div class="row total"><div class="name"></div><div class="qty">Total</div><div class="amt">$${receiptTotal.toFixed(2)}</div></div>
+            <div class="row"><div class="name"></div><div class="qty">Discount</div><div class="amt">-$${discount.toFixed(2)}</div></div>
+            <div class="row"><div class="name"></div><div class="qty">Tax (${taxRate.toFixed(2)}%)</div><div class="amt">$${taxAmt.toFixed(2)}</div></div>
+            <div class="row"><div class="name"></div><div class="qty">Service (${serviceRate.toFixed(2)}%)</div><div class="amt">$${serviceAmt.toFixed(2)}</div></div>
+            <div class="row total"><div class="name"></div><div class="qty">Total</div><div class="amt">$${grand.toFixed(2)}</div></div>
             </div>
             <div class="line"></div>
-            <div class="line"></div>
-            <div style="text-align:center; ">
-                Thank you for your visit! <br/>
-                www.skylightvillagelb.com<br/>
-                Tel: +961 70 66 99 33<br/>
-                Follow us: @skylightvillage
-            </div>
+            ${orgBrand?.receipt_footer ? `<div style=\"text-align:center;\">${orgBrand.receipt_footer}</div>` : ''}
         </body></html>`;
 
         const w = window.open("", "PRINT", "height=600,width=420");
@@ -489,18 +534,38 @@ export default function KitchenPage() {
     const q = searchQuery.trim().toLowerCase();
     const highlightItemName = useMemo(() => buildHighlighter(q), [q]);
 
+    // Helper: determine if an order is still "new"
+    const isOrderNew = useCallback(
+        (order: Order) => {
+            const meta = newOrderMeta[order.id];
+            if (!meta) return false;
+            if (order.status !== meta.initialStatus) return false;
+            return nowTs < meta.expiresAt;
+        },
+        [newOrderMeta, nowTs]
+    );
+
     const filteredOrders = useMemo(() => {
-        if (!q) return orders;
-        const tableMatchInfo = /^table\s+(\S+)/i.exec(q);
-        const orderIdMatch = /^#?(\d+)$/i.exec(q);
-        return orders.filter((order) => {
-            const nameMatch = (order.name || "").toLowerCase().includes(q);
-            const itemMatch = (order.order_items || []).some((it) => (menuNameById.get(it.menu_item_id) || "").includes(q));
-            const idMatch = orderIdMatch ? order.id === Number(orderIdMatch[1]) : false;
-            const tableMatch = tableMatchInfo ? order.table_id.toLowerCase() === tableMatchInfo[1].toLowerCase() : false;
-            return nameMatch || itemMatch || idMatch || tableMatch;
-        });
-    }, [orders, q, menuNameById]);
+        const cutoff = Date.now() - sinceHours * 60 * 60 * 1000;
+        const base = orders.filter(o => new Date(o.created_at + 'Z').getTime() >= cutoff);
+        const tableNorm = tableFilter.trim().toLowerCase();
+        let out = base;
+        if (q) {
+            const tableMatchInfo = /^table\s+(\S+)/i.exec(q);
+            const orderIdMatch = /^#?(\d+)$/i.exec(q);
+            out = out.filter((order) => {
+                const nameMatch = (order.name || "").toLowerCase().includes(q);
+                const itemMatch = (order.order_items || []).some((it) => (menuNameById.get(it.menu_item_id) || "").includes(q));
+                const idMatch = orderIdMatch ? order.id === Number(orderIdMatch[1]) : false;
+                const tableMatch = tableMatchInfo ? order.table_id.toLowerCase() === tableMatchInfo[1].toLowerCase() : false;
+                return nameMatch || itemMatch || idMatch || tableMatch;
+            });
+        }
+        if (tableNorm) out = out.filter(o => o.table_id.toLowerCase() === tableNorm);
+        if (onlyComments) out = out.filter(o => !!o.comment && o.comment.trim().length > 0);
+        if (onlyNew && isOrderNew) out = out.filter(o => isOrderNew(o));
+        return out;
+    }, [orders, q, menuNameById, sinceHours, tableFilter, onlyComments, onlyNew, isOrderNew]);
 
     // Group orders by status → table → name
     const ordersByStatusTableName = useMemo(() => {
@@ -516,23 +581,13 @@ export default function KitchenPage() {
         return map;
     }, [filteredOrders]);
 
-    const isOrderNew = useCallback(
-        (order: Order) => {
-            const meta = newOrderMeta[order.id];
-            if (!meta) return false;
-            if (order.status !== meta.initialStatus) return false;
-            return nowTs < meta.expiresAt;
-        },
-        [newOrderMeta, nowTs]
-    );
-
     if (orgLoading) return <div className="p-4">Loading…</div>;
     if (!organizationId) return <div className="p-4">No organization found for “{slug}”.</div>;
     if (isMember === false) return <div className="p-4">You don’t have access to organization “{slug}”. Ask an owner/manager to add you.</div>;
 
     return (
         <div className="p-4 max-w-6xl mx-auto">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 gap-3">
                 <h1 className="text-2xl font-bold">Kitchen Orders</h1>
                 <NotificationBell
                     items={notifications}
@@ -549,8 +604,29 @@ export default function KitchenPage() {
                     nowTs={nowTs}
                     connected={notifBcConnected || notifDbConnected}
                 />
+                <KeepAwakeToggle />
             </div>
             <SearchBar value={searchQuery} onDebouncedChange={setSearchQuery} onClear={() => setSearchQuery("")} />
+            <div className="flex flex-wrap items-center gap-2 mb-4 text-sm">
+                <label className="flex items-center gap-2">Since
+                    <select className="border rounded p-1" value={sinceHours} onChange={(e) => setSinceHours(Number(e.target.value))}>
+                        <option value={2}>2h</option>
+                        <option value={6}>6h</option>
+                        <option value={12}>12h</option>
+                        <option value={24}>24h</option>
+                        <option value={72}>72h</option>
+                    </select>
+                </label>
+                <label className="flex items-center gap-1">
+                    <input type="checkbox" checked={onlyNew} onChange={(e) => setOnlyNew(e.target.checked)} /> Only new
+                </label>
+                <label className="flex items-center gap-1">
+                    <input type="checkbox" checked={onlyComments} onChange={(e) => setOnlyComments(e.target.checked)} /> With comments
+                </label>
+                <label className="flex items-center gap-2">Table
+                    <input className="border rounded p-1" placeholder="e.g., 12" value={tableFilter} onChange={(e) => setTableFilter(e.target.value)} />
+                </label>
+            </div>
 
             {statuses.map((status) => (
                 <StatusSection
