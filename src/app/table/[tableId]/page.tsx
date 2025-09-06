@@ -140,7 +140,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
 
 
     const visibleMenu = menu.filter(item => (item.is_available ?? true));
-    const categories = Array.from(new Set(visibleMenu.map(item => item.category)));
+    const categories = Array.from(new Set(visibleMenu.map(item => item.category))).sort();
 
     const addToCart = (id: number) => {
         setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));

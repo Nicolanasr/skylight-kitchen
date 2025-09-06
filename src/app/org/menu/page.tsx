@@ -8,6 +8,7 @@ import type { MenuItem, MenuOptionGroup } from '@/types';
 export default function OrgMenuPage() {
   const { organizationId, slug, loading, error } = useOrganization();
   const [menu, setMenu] = useState<MenuItem[]>([]);
+  const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Partial<MenuItem>>({ name: '', price: 0, category: '', description: '', image_url: '', is_available: true });
   const [optionsEditorFor, setOptionsEditorFor] = useState<number | null>(null);
@@ -62,23 +63,50 @@ export default function OrgMenuPage() {
   if (loading) return <div className="p-4">Loading…</div>;
   if (error || !organizationId) return <div className="p-4">No organization found for “{slug}”.</div>;
 
-  const categories = Array.from(new Set(menu.map(m => m.category))).sort();
+  const lowered = search.trim().toLowerCase();
+  const filtered = lowered
+    ? menu.filter(m => (m.name.toLowerCase().includes(lowered) || (m.category || '').toLowerCase().includes(lowered)))
+    : menu;
+  const categories = Array.from(new Set(filtered.map(m => m.category))).sort();
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Menu Management</h1>
       <div className="p-4 border rounded bg-white mb-6">
+        <div className="mb-3">
+          <input
+            className="w-full md:w-80 border rounded p-2 h-10 text-sm"
+            placeholder="Search items or categories..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-          <input className="border rounded p-2 h-10 text-sm md:col-span-3" placeholder="Name" value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <input type="number" className="border rounded p-2 h-10 text-sm md:col-span-2" placeholder="Price" value={form.price ?? 0} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} />
-          <input className="border rounded p-2 h-10 text-sm md:col-span-3" placeholder="Category" value={form.category ?? ''} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-          <input className="border rounded p-2 h-10 text-sm md:col-span-3" placeholder="Image URL" value={form.image_url ?? ''} onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
+          <label className="text-xs text-gray-600 md:col-span-3">
+            <div className="mb-1">Name</div>
+            <input className="w-full border rounded p-2 h-10 text-sm" value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </label>
+          <label className="text-xs text-gray-600 md:col-span-2">
+            <div className="mb-1">Price</div>
+            <input type="number" className="w-full border rounded p-2 h-10 text-sm" value={form.price ?? 0} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} />
+          </label>
+          <label className="text-xs text-gray-600 md:col-span-3">
+            <div className="mb-1">Category</div>
+            <input className="w-full border rounded p-2 h-10 text-sm" value={form.category ?? ''} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+          </label>
+          <label className="text-xs text-gray-600 md:col-span-3">
+            <div className="mb-1">Image URL</div>
+            <input className="w-full border rounded p-2 h-10 text-sm" value={form.image_url ?? ''} onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
+          </label>
           <label className="flex items-center gap-2 text-sm md:col-span-1">
             <input type="checkbox" className="h-4 w-4" checked={!!form.is_available} onChange={(e) => setForm({ ...form, is_available: e.target.checked })} />
             Available
           </label>
           <button onClick={saveItem} disabled={saving || !form.name} className={`md:col-span-12 h-10 px-4 rounded text-white ${saving || !form.name ? 'bg-blue-300' : 'bg-blue-600 hover:bg-blue-700'}`}>Add Item</button>
-          <textarea className="md:col-span-12 border rounded p-2 text-sm" placeholder="Description (optional)" value={form.description ?? ''} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          <label className="text-xs text-gray-600 md:col-span-12">
+            <div className="mb-1">Description (optional)</div>
+            <textarea className="w-full border rounded p-2 text-sm" value={form.description ?? ''} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </label>
         </div>
       </div>
 
@@ -86,13 +114,25 @@ export default function OrgMenuPage() {
         <div key={cat} className="mb-5">
           <h2 className="text-xl font-semibold mb-2">{cat}</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {menu.filter(m => m.category === cat).map(it => (
+            {filtered.filter(m => m.category === cat).map(it => (
               <div key={it.id} className="p-3 border rounded bg-white flex flex-col gap-3">
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                  <input className="border rounded p-2 h-10 text-sm md:col-span-3" value={it.name} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, name: e.target.value } : p))} />
-                  <input type="number" className="border rounded p-2 h-10 text-sm md:col-span-2" value={it.price} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, price: Number(e.target.value) } : p))} />
-                  <input className="border rounded p-2 h-10 text-sm md:col-span-3" value={it.category} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, category: e.target.value } : p))} />
-                  <input className="border rounded p-2 h-10 text-sm md:col-span-3" value={it.image_url ?? ''} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, image_url: e.target.value } : p))} />
+                  <label className="text-xs text-gray-600 md:col-span-3">
+                    <div className="mb-1">Name</div>
+                    <input className="w-full border rounded p-2 h-10 text-sm" value={it.name} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, name: e.target.value } : p))} />
+                  </label>
+                  <label className="text-xs text-gray-600 md:col-span-2">
+                    <div className="mb-1">Price</div>
+                    <input type="number" className="w-full border rounded p-2 h-10 text-sm" value={it.price} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, price: Number(e.target.value) } : p))} />
+                  </label>
+                  <label className="text-xs text-gray-600 md:col-span-3">
+                    <div className="mb-1">Category</div>
+                    <input className="w-full border rounded p-2 h-10 text-sm" value={it.category} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, category: e.target.value } : p))} />
+                  </label>
+                  <label className="text-xs text-gray-600 md:col-span-3">
+                    <div className="mb-1">Image URL</div>
+                    <input className="w-full border rounded p-2 h-10 text-sm" value={it.image_url ?? ''} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, image_url: e.target.value } : p))} />
+                  </label>
                   <label className="flex items-center gap-2 text-sm md:col-span-1">
                     <input type="checkbox" className="h-4 w-4" checked={it.is_available ?? true} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, is_available: e.target.checked } : p))} />
                     Available
@@ -103,7 +143,10 @@ export default function OrgMenuPage() {
                     <button className="h-10 px-3 bg-red-600 text-white rounded" onClick={() => deleteItem(it.id)}>Delete</button>
                   </div>
                 </div>
-                <textarea className="border rounded p-2 text-sm" placeholder="Description" value={it.description ?? ''} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, description: e.target.value } : p))} />
+                <label className="text-xs text-gray-600">
+                  <div className="mb-1">Description</div>
+                  <textarea className="w-full border rounded p-2 text-sm" value={it.description ?? ''} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, description: e.target.value } : p))} />
+                </label>
               </div>
             ))}
             {menu.filter(m => m.category === cat).length === 0 && (

@@ -29,7 +29,7 @@ export default function OrgTablesPage() {
   const baseUrl = useMemo(() => {
     if (typeof window === 'undefined') return '';
     const origin = window.location.origin;
-    return `${origin}/t/${slug}/table/`;
+    return `${origin}/table/`;
   }, [slug]);
 
   const addTable = async () => {

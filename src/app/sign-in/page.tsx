@@ -24,7 +24,7 @@ export default function SignInPage() {
       setError(error.message);
     } else {
       const redirect = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('redirect') : null;
-      const target = redirect && redirect.startsWith('/') ? redirect : `/t/${slug}/kitchen`;
+      const target = redirect && redirect.startsWith('/') ? redirect : `/kitchen`;
       router.replace(target);
     }
   };
