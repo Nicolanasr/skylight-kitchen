@@ -67,16 +67,19 @@ export default function OrgMenuPage() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Menu Management</h1>
-      <div className="p-4 border rounded bg-white mb-6 grid grid-cols-1 md:grid-cols-6 gap-2">
-        <input className="border rounded p-2" placeholder="Name" value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <input type="number" className="border rounded p-2" placeholder="Price" value={form.price ?? 0} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} />
-        <input className="border rounded p-2" placeholder="Category" value={form.category ?? ''} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-        <input className="border rounded p-2" placeholder="Image URL" value={form.image_url ?? ''} onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={!!form.is_available} onChange={(e) => setForm({ ...form, is_available: e.target.checked })} /> Available
-        </label>
-        <button onClick={saveItem} disabled={saving || !form.name} className={`px-3 py-2 rounded text-white ${saving || !form.name ? 'bg-blue-300' : 'bg-blue-600 hover:bg-blue-700'}`}>Add Item</button>
-        <textarea className="md:col-span-5 border rounded p-2" placeholder="Description (optional)" value={form.description ?? ''} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+      <div className="p-4 border rounded bg-white mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+          <input className="border rounded p-2 h-10 text-sm md:col-span-3" placeholder="Name" value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <input type="number" className="border rounded p-2 h-10 text-sm md:col-span-2" placeholder="Price" value={form.price ?? 0} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} />
+          <input className="border rounded p-2 h-10 text-sm md:col-span-3" placeholder="Category" value={form.category ?? ''} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+          <input className="border rounded p-2 h-10 text-sm md:col-span-3" placeholder="Image URL" value={form.image_url ?? ''} onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
+          <label className="flex items-center gap-2 text-sm md:col-span-1">
+            <input type="checkbox" className="h-4 w-4" checked={!!form.is_available} onChange={(e) => setForm({ ...form, is_available: e.target.checked })} />
+            Available
+          </label>
+          <button onClick={saveItem} disabled={saving || !form.name} className={`md:col-span-12 h-10 px-4 rounded text-white ${saving || !form.name ? 'bg-blue-300' : 'bg-blue-600 hover:bg-blue-700'}`}>Add Item</button>
+          <textarea className="md:col-span-12 border rounded p-2 text-sm" placeholder="Description (optional)" value={form.description ?? ''} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        </div>
       </div>
 
       {categories.map(cat => (
@@ -84,22 +87,23 @@ export default function OrgMenuPage() {
           <h2 className="text-xl font-semibold mb-2">{cat}</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {menu.filter(m => m.category === cat).map(it => (
-              <div key={it.id} className="p-3 border rounded bg-white flex flex-col gap-2">
-                <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center">
-                  <input className="border rounded p-2" value={it.name} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, name: e.target.value } : p))} />
-                  <input type="number" className="border rounded p-2" value={it.price} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, price: Number(e.target.value) } : p))} />
-                  <input className="border rounded p-2" value={it.category} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, category: e.target.value } : p))} />
-                  <input className="border rounded p-2" value={it.image_url ?? ''} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, image_url: e.target.value } : p))} />
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={it.is_available ?? true} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, is_available: e.target.checked } : p))} /> Available
+              <div key={it.id} className="p-3 border rounded bg-white flex flex-col gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                  <input className="border rounded p-2 h-10 text-sm md:col-span-3" value={it.name} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, name: e.target.value } : p))} />
+                  <input type="number" className="border rounded p-2 h-10 text-sm md:col-span-2" value={it.price} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, price: Number(e.target.value) } : p))} />
+                  <input className="border rounded p-2 h-10 text-sm md:col-span-3" value={it.category} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, category: e.target.value } : p))} />
+                  <input className="border rounded p-2 h-10 text-sm md:col-span-3" value={it.image_url ?? ''} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, image_url: e.target.value } : p))} />
+                  <label className="flex items-center gap-2 text-sm md:col-span-1">
+                    <input type="checkbox" className="h-4 w-4" checked={it.is_available ?? true} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, is_available: e.target.checked } : p))} />
+                    Available
                   </label>
-                  <div className="flex gap-2 justify-end">
-                    <button className="px-3 py-2 bg-purple-600 text-white rounded" onClick={() => { setOptionsEditorFor(it.id); setOptionsJson(JSON.stringify(it.options ?? [], null, 2)); }}>Options</button>
-                    <button className="px-3 py-2 bg-green-600 text-white rounded" onClick={() => updateItem(it)}>Save</button>
-                    <button className="px-3 py-2 bg-red-600 text-white rounded" onClick={() => deleteItem(it.id)}>Delete</button>
+                  <div className="flex gap-2 justify-end md:col-span-12">
+                    <button className="h-10 px-3 bg-purple-600 text-white rounded" onClick={() => { setOptionsEditorFor(it.id); setOptionsJson(JSON.stringify(it.options ?? [], null, 2)); }}>Options</button>
+                    <button className="h-10 px-3 bg-green-600 text-white rounded" onClick={() => updateItem(it)}>Save</button>
+                    <button className="h-10 px-3 bg-red-600 text-white rounded" onClick={() => deleteItem(it.id)}>Delete</button>
                   </div>
                 </div>
-                <textarea className="border rounded p-2" placeholder="Description" value={it.description ?? ''} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, description: e.target.value } : p))} />
+                <textarea className="border rounded p-2 text-sm" placeholder="Description" value={it.description ?? ''} onChange={(e) => setMenu(prev => prev.map(p => p.id === it.id ? { ...p, description: e.target.value } : p))} />
               </div>
             ))}
             {menu.filter(m => m.category === cat).length === 0 && (
