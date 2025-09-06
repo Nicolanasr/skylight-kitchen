@@ -104,7 +104,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
     }, [tableId, cart, comment, orderName]);
 
 
-    const categories = Array.from(new Set(menu.map(item => item.category)));
+    const categories = Array.from(new Set(menu.map(item => item.category))).sort();
 
     const addToCart = (id: number) => {
         setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
