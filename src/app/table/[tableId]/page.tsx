@@ -70,7 +70,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
     // Fetch menu
     useEffect(() => {
         async function fetchMenu() {
-            const { data } = await supabase.from("menus").select("*");
+            const { data } = await supabase.from("menus").select("*").order("category");
             setMenu(data || []);
         }
         fetchMenu();
@@ -124,6 +124,11 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
 
     const submitOrder = async () => {
         if (Object.keys(cart).length === 0) return;
+
+        if (!orderName) {
+            alert("Name is required");
+            return;
+        }
 
         setIsSubmitting(true);
 
@@ -367,9 +372,9 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                 )}
 
                                 <div className="mb-4 relative mt-6">
-                                    <label className="block font-medium mb-1">Name (optional)</label>
+                                    <label className="block font-medium mb-1">Name *</label>
                                     <input
-                                        type="text"
+                                        type="text" required
                                         value={orderName}
                                         onChange={(e) => {
                                             setOrderName(e.target.value.toLowerCase());
@@ -422,6 +427,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
                                 <div className="mt-4 flex gap-2 justify-end">
                                     <button
                                         onClick={submitOrder}
+                                        type="submit"
                                         className={`px-4 py-2 ${isSubmitting ? "bg-green-100" : "bg-green-500"} text-white rounded hover:bg-green-600`}
                                         disabled={isSubmitting}
                                     >
