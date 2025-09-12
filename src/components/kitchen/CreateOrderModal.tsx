@@ -106,6 +106,7 @@ export default function CreateOrderModal({ isOpen, onClose, menuItems, setOrders
                 clearAll();
                 onClose();
             }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } catch (e: any) {
             alert("Failed to create order: " + (e?.message || String(e)));
         } finally {
