@@ -193,7 +193,7 @@ function OrderCardBase({
                                     </td>
                                     <td className="table-cell">{item.quantity}</td>
                                     <td className="table-cell">{'$' + unit.toFixed(2)}</td>
-                                    <td className="table-cell">{'$' + (item.quantity * parseFloat(line.toFixed(2).toString()))}</td>
+                                    <td className="table-cell">{'$' + (item.quantity * parseFloat(unit.toFixed(2).toString()))}</td>
                                     <td className="table-cell">
                                         <select
                                             className="border rounded px-2 py-1 text-sm capitalize"
