@@ -11,6 +11,7 @@ export type OrderItem = {
 	id: number;
 	menu_item_id: number;
 	quantity: number;
+	status: string;
 };
 
 export type Order = {

@@ -9,6 +9,8 @@ import EditOrderModal from "@/components/kitchen/EditOrderModal";
 import PayModal from "@/components/kitchen/PayModal";
 import StatusSection from "@/components/kitchen/StatusSection";
 import SearchBar from "@/components/kitchen/SearchBar";
+import CreateOrderModal from "@/components/kitchen/CreateOrderModal";
+import ChangeStatusModal from "@/components/kitchen/ChangeStatusModal";
 import { useNowTick } from "@/components/kitchen/hooks";
 import { buildHighlighter, buildMenuIndex, formatDateBeirut, getOrderDiscount as utilGetOrderDiscount, getOrderSubtotal as utilGetOrderSubtotal } from "@/components/kitchen/utils";
 import ToastContainer, { Toast } from "@/components/kitchen/ToastContainer";
@@ -60,6 +62,10 @@ export default function KitchenPage() {
     // Notification center state (DB-backed)
     const [notifications, setNotifications] = useState<{ id: number; message: string; created_at: string; type?: string | null; read_at: string | null }[]>([]);
     const [notifConnected, setNotifConnected] = useState<boolean>(false);
+    // Create order modal
+    const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
+    // Change-all-status modal target
+    const [changeOrder, setChangeOrder] = useState<Order | null>(null);
 
     // Helpers and indexes
     const menuIndex = useMemo(() => buildMenuIndex(menuItems), [menuItems]);
@@ -96,7 +102,7 @@ export default function KitchenPage() {
                 const newOrder = payload.new as Order;
                 setOrders((prev) => {
                     const idx = prev.findIndex((o) => o.id === newOrder.id);
-                    if (idx === -1) return [newOrder, ...prev];
+                    if (idx === -1) return [...prev, newOrder];
                     const copy = [...prev];
                     copy[idx] = newOrder;
                     return copy;
@@ -118,7 +124,7 @@ export default function KitchenPage() {
                 const updatedOrder = payload.new as Order;
                 setOrders((prev) => {
                     const index = prev.findIndex((o) => o.id === updatedOrder.id);
-                    if (index === -1) return [updatedOrder, ...prev];
+                    if (index === -1) return [...prev, updatedOrder];
                     const newOrders = [...prev];
                     newOrders[index] = updatedOrder;
                     return newOrders;
@@ -152,7 +158,7 @@ export default function KitchenPage() {
                 .from("orders")
                 .select("id,table_id,name,order_items,status,comment,disc_amt,disc_pct,created_at")
                 .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-                .order("created_at", { ascending: false });
+                .order("created_at", { ascending: true });
             setOrders(data || []);
         }
         fetchOrders();
@@ -197,10 +203,75 @@ export default function KitchenPage() {
     // Convert UTC to Beirut time
     const formatDate = useCallback((utcDate: string) => formatDateBeirut(utcDate), []);
 
-    // Update order status
-    const updateStatus = useCallback(async (order: Order, nextStatus: string) => {
-        await supabase.from("orders").update({ status: nextStatus }).eq("id", order.id);
-    }, []);
+    // Update individual item status within an order (direct selection)
+    const updateItemStatus = useCallback(
+        async (order: Order, itemIndex: number, nextStatus: string) => {
+            const allowedStatuses = new Set(["pending", "preparing", "served"]);
+            if (!allowedStatuses.has(nextStatus)) return;
+
+            const updatedItems = order.order_items.map((it, idx) =>
+                idx === itemIndex ? { ...it, status: nextStatus } : it
+            );
+
+            // Derive order status from item statuses
+            // - If any item is pending → order is pending
+            // - Else if all served → order is served
+            // - Else → order is preparing
+            const anyPending = updatedItems.some((it) => it.status === "pending");
+            const allServed = updatedItems.every((it) => it.status === "served");
+            const newStatus = anyPending ? "pending" : allServed ? "served" : "preparing";
+
+            const { error } = await supabase
+                .from("orders")
+                .update({
+                    order_items: updatedItems,
+                    status: newStatus,
+                })
+                .eq("id", order.id);
+            if (!error) {
+                setOrders((prev) =>
+                    prev.map((o) =>
+                        o.id === order.id
+                            ? {
+                                ...o,
+                                order_items: updatedItems,
+                                status: newStatus,
+                            }
+                            : o
+                    )
+                );
+            } else {
+                console.error("Failed to update item status", error);
+            }
+        },
+        [setOrders]
+    );
+
+    // Update all items in an order to a selected status
+    const updateAllItemStatuses = useCallback(
+        async (order: Order, nextStatus: string) => {
+            const allowed = new Set(["pending", "preparing", "served"]);
+            if (!allowed.has(nextStatus)) return;
+
+            const updatedItems = order.order_items.map((it) => ({ ...it, status: nextStatus }));
+            const { error } = await supabase
+                .from("orders")
+                .update({ order_items: updatedItems, status: nextStatus })
+                .eq("id", order.id);
+            if (!error) {
+                setOrders((prev) =>
+                    prev.map((o) =>
+                        o.id === order.id
+                            ? { ...o, order_items: updatedItems, status: nextStatus }
+                            : o
+                    )
+                );
+            } else {
+                console.error("Failed to update all item statuses", error);
+            }
+        },
+        [setOrders]
+    );
 
     // legacy inline alert receipt removed; receipt handled via modal
 
@@ -415,7 +486,7 @@ export default function KitchenPage() {
     };
 
     // Define status order
-    const statuses = ["pending", "preparing", "ready to be served", "served", "paid", "canceled"];
+    const statuses = ["pending", "preparing", "served", "paid", "canceled"];
 
     // Search filtering: by item name, customer name, or table number
     const menuNameById = useMemo(() => {
@@ -458,6 +529,28 @@ export default function KitchenPage() {
         return map;
     }, [filteredOrders]);
 
+
+    // Group orders by status (pending, preparing, ready to be served)
+    const ordersByStatus = useMemo(() => {
+        const map: Record<string, Order[]> = {
+            pending: [],
+            preparing: [],
+            "ready to be served": [],
+        };
+        for (const order of filteredOrders) {
+            if (map[order.status]) {
+                map[order.status].push(order);
+            }
+        }
+        // for (const s of Object.keys(map)) {
+        //     map[s].sort(
+        //         (a, b) =>
+        //             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        //     );
+        // }
+        return map;
+    }, [filteredOrders]);
+
     const isOrderNew = useCallback(
         (order: Order) => {
             const meta = newOrderMeta[order.id];
@@ -472,7 +565,11 @@ export default function KitchenPage() {
         <div className="p-4 max-w-6xl mx-auto">
             <div className="flex items-center justify-between mb-4">
                 <h1 className="text-2xl font-bold">Kitchen Orders</h1>
-                <NotificationBell
+                <div className="flex items-center gap-2">
+                    <button className="px-3 py-1 bg-green-600 text-white rounded" onClick={() => setIsCreateOpen(true)}>
+                        Create Order
+                    </button>
+                    <NotificationBell
                     items={notifications}
                     unreadIds={unreadIds}
                     onMarkRead={async (id) => {
@@ -487,14 +584,19 @@ export default function KitchenPage() {
                     nowTs={nowTs}
                     connected={notifConnected}
                 />
+                </div>
             </div>
             <SearchBar value={searchQuery} onDebouncedChange={setSearchQuery} onClear={() => setSearchQuery("")} />
+            <CreateOrderModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} menuItems={menuItems} setOrders={setOrders} />
 
             {statuses.map((status) => (
                 <StatusSection
                     key={status}
                     status={status}
-                    tablesMap={ordersByStatusTableName[status]}
+                    orders={['pending', 'preparing', 'ready to be served'].includes(status) ? ordersByStatus[status] : undefined}
+                    tablesMap={['pending', 'preparing'].includes(status) ? undefined : ordersByStatusTableName[status]}
+                    updateAllItemStatuses={updateAllItemStatuses}
+                    onOpenChangeStatus={(order: Order) => setChangeOrder(order)}
                     paidExpanded={paidExpanded}
                     setPaidExpanded={setPaidExpanded}
                     menuIndex={menuIndex}
@@ -502,7 +604,7 @@ export default function KitchenPage() {
                     formatDate={formatDate}
                     getOrderSubtotal={getOrderSubtotal}
                     getOrderDiscount={getOrderDiscount}
-                    updateStatus={updateStatus}
+                    updateItemStatus={updateItemStatus}
                     onEdit={(order: Order) => {
                         setEditOrder(order);
                         setEditItems(order.order_items ? [...order.order_items] : []);
@@ -579,6 +681,16 @@ export default function KitchenPage() {
                     return sum;
                 }, [paySelectAll, paySelectedNames, payAmountsByName, payGrandTotal])}
                 grandTotal={payGrandTotal}
+            />
+            <ChangeStatusModal
+                isOpen={!!changeOrder}
+                onClose={() => setChangeOrder(null)}
+                onSelect={async (s) => {
+                    if (changeOrder) {
+                        await updateAllItemStatuses(changeOrder, s);
+                    }
+                    setChangeOrder(null);
+                }}
             />
             <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
         </div>

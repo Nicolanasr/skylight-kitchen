@@ -10,6 +10,7 @@ import { TiShoppingCart } from "react-icons/ti";
 type OrderItem = {
     menu_item_id: number;
     quantity: number;
+    status: string;
 };
 
 export default function TablePage({ params }: { params: Promise<{ tableId: string }> }) {
@@ -164,6 +165,7 @@ export default function TablePage({ params }: { params: Promise<{ tableId: strin
             order_items: Object.entries(cart).map(([id, qty]) => ({
                 menu_item_id: Number(id),
                 quantity: qty,
+                status: 'pending',
             })),
             status: 'pending',
             comment: comment || null,
