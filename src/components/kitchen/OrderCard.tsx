@@ -113,10 +113,10 @@ function OrderCardBase({
                 w.document.close();
                 // Give the browser a tick to layout before printing
                 setTimeout(() => {
-                    try { w.focus(); } catch {}
-                    try { w.print(); } catch {}
+                    try { w.focus(); } catch { }
+                    try { w.print(); } catch { }
                     // Close shortly after; many browsers block on print dialog
-                    setTimeout(() => { try { w.close(); } catch {} resolve(); }, 300);
+                    setTimeout(() => { try { w.close(); } catch { } resolve(); }, 300);
                 }, 50);
             });
 
@@ -192,7 +192,7 @@ function OrderCardBase({
                                         {highlightItemName(menu?.name || "Unknown")}
                                     </td>
                                     <td className="table-cell">{item.quantity}</td>
-                                    <td className="table-cell">{'$' + line.toFixed(2)}</td>
+                                    <td className="table-cell">{'$' + unit.toFixed(2)}</td>
                                     <td className="table-cell">{'$' + (item.quantity * parseFloat(line.toFixed(2).toString()))}</td>
                                     <td className="table-cell">
                                         <select
