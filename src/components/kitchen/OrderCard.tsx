@@ -41,7 +41,7 @@ function OrderCardBase({
     const discount = getOrderDiscount(order, subtotal);
     const total = Math.max(0, subtotal - discount);
 
-    const printByStation = () => {
+    const printByStation = async () => {
         try {
             // Group items by station
             const byStation: Record<string, { name: string; qty: number }[]> = {};
@@ -56,7 +56,7 @@ function OrderCardBase({
                 if (existing) existing.qty += it.quantity; else arr.push({ name: itemName, qty: it.quantity });
             }
 
-            const pagesHtml = Object.entries(byStation)
+            const pages = Object.entries(byStation)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([station, items]) => {
                     const rows = items
@@ -68,64 +68,62 @@ function OrderCardBase({
                             </tr>
                         `)
                         .join("\n");
-                    return `
-                        <div class="page">
-                            <div class="hdr">
-                                <div class="left">Order #${order.id}</div>
-                                <div class="right">${formatDate(order.created_at)}</div>
-                            </div>
-                            <div class="meta">
-                                <div>Table: <strong>${order.table_id}</strong></div>
-                                <div>Customer: <strong>${order.name || 'Unknown'}</strong></div>
-                                <div>Station: <strong>${station}</strong></div>
-                            </div>
-                            <table class="items">
-                                <thead>
-                                    <tr><th class="nm">Item</th><th class="qt">Qty</th></tr>
-                                </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
-                            </table>
-                            ${order.comment ? `<div class="comment">Comment: ${order.comment}</div>` : ''}
-                        </div>
-                    `;
-                })
-                .join("\n");
-
-            const html = `<!doctype html>
+                    const html = `<!doctype html>
 <html>
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Order #${order.id} — Station Tickets</title>
+    <title>Order #${order.id} — ${station}</title>
     <style>
         * { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 0; }
-        .page { padding: 16px; page-break-after: always; }
-        .hdr { display: flex; justify-content: space-between; font-size: 14px; color: #444; margin-bottom: 8px; }
-        .meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; font-size: 16px; margin-bottom: 12px; }
+        @page { size: 80mm auto; margin: 4mm; }
+        body { width: 80mm; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif; }
+        .ticket { width: 100%; }
+        .hdr { display: flex; justify-content: space-between; font-size: 12px; color: #444; margin-bottom: 6px; }
+        .title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+        .meta { font-size: 14px; margin-bottom: 8px; }
         .items { width: 100%; border-collapse: collapse; }
-        .items th, .items td { border-bottom: 1px solid #ddd; padding: 8px; }
-        .items th.nm, .items td.nm { text-align: left; font-size: 20px; }
-        .items th.qt, .items td.qt { text-align: right; width: 80px; font-size: 22px; font-weight: 600; }
-        .comment { margin-top: 12px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 16px; }
-        @media print {
-            .page { page-break-after: always; }
-        }
+        .items th, .items td { border-bottom: 1px dashed #999; padding: 6px 0; }
+        .items th.nm, .items td.nm { text-align: left; font-size: 16px; }
+        .items th.qt, .items td.qt { text-align: right; width: 60px; font-size: 16px; font-weight: 700; }
+        .comment { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #999; font-size: 14px; }
     </style>
 </head>
 <body>
-${pagesHtml || '<div class="page"><em>No items</em></div>'}
+    <div class="ticket">
+        <div class="hdr"><div>Order #${order.id}</div><div>${formatDate(order.created_at)}</div></div>
+        <div class="title">Station: ${station}</div>
+        <div class="meta">Table: <strong>${order.table_id}</strong> — Customer: <strong>${order.name || 'Unknown'}</strong></div>
+        <table class="items">
+            <thead><tr><th class="nm">Item</th><th class="qt">Qty</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        ${order.comment ? `<div class="comment">Comment: ${order.comment}</div>` : ''}
+    </div>
 </body>
 </html>`;
+                    return html;
+                });
 
-            const w = window.open("", "PRINT", "height=800,width=600");
-            if (!w) return;
-            w.document.write(html);
-            w.document.close();
-            w.focus();
-            w.print();
+            // Print each station as a separate job (helps auto-cutter cut per ticket)
+            const printHtml = (html: string) => new Promise<void>((resolve) => {
+                const w = window.open("", "PRINT", "height=600,width=420");
+                if (!w) { resolve(); return; }
+                w.document.write(html);
+                w.document.close();
+                // Give the browser a tick to layout before printing
+                setTimeout(() => {
+                    try { w.focus(); } catch {}
+                    try { w.print(); } catch {}
+                    // Close shortly after; many browsers block on print dialog
+                    setTimeout(() => { try { w.close(); } catch {} resolve(); }, 300);
+                }, 50);
+            });
+
+            for (const html of pages) {
+                // eslint-disable-next-line no-await-in-loop
+                await printHtml(html);
+            }
         } catch (err) {
             // eslint-disable-next-line no-console
             console.error('Print failed', err);
