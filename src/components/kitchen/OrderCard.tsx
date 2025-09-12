@@ -41,6 +41,97 @@ function OrderCardBase({
     const discount = getOrderDiscount(order, subtotal);
     const total = Math.max(0, subtotal - discount);
 
+    const printByStation = () => {
+        try {
+            // Group items by station
+            const byStation: Record<string, { name: string; qty: number }[]> = {};
+            for (const it of order.order_items || []) {
+                const mi = menuIndex[it.menu_item_id];
+                if (!mi) continue;
+                const station = mi.station || "General";
+                const itemName = mi.name || `Item ${it.menu_item_id}`;
+                if (!byStation[station]) byStation[station] = [];
+                const arr = byStation[station];
+                const existing = arr.find((x) => x.name === itemName);
+                if (existing) existing.qty += it.quantity; else arr.push({ name: itemName, qty: it.quantity });
+            }
+
+            const pagesHtml = Object.entries(byStation)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([station, items]) => {
+                    const rows = items
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((row) => `
+                            <tr>
+                                <td class="nm">${row.name}</td>
+                                <td class="qt">${row.qty}</td>
+                            </tr>
+                        `)
+                        .join("\n");
+                    return `
+                        <div class="page">
+                            <div class="hdr">
+                                <div class="left">Order #${order.id}</div>
+                                <div class="right">${formatDate(order.created_at)}</div>
+                            </div>
+                            <div class="meta">
+                                <div>Table: <strong>${order.table_id}</strong></div>
+                                <div>Customer: <strong>${order.name || 'Unknown'}</strong></div>
+                                <div>Station: <strong>${station}</strong></div>
+                            </div>
+                            <table class="items">
+                                <thead>
+                                    <tr><th class="nm">Item</th><th class="qt">Qty</th></tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                            ${order.comment ? `<div class="comment">Comment: ${order.comment}</div>` : ''}
+                        </div>
+                    `;
+                })
+                .join("\n");
+
+            const html = `<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Order #${order.id} — Station Tickets</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 0; }
+        .page { padding: 16px; page-break-after: always; }
+        .hdr { display: flex; justify-content: space-between; font-size: 14px; color: #444; margin-bottom: 8px; }
+        .meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; font-size: 16px; margin-bottom: 12px; }
+        .items { width: 100%; border-collapse: collapse; }
+        .items th, .items td { border-bottom: 1px solid #ddd; padding: 8px; }
+        .items th.nm, .items td.nm { text-align: left; font-size: 20px; }
+        .items th.qt, .items td.qt { text-align: right; width: 80px; font-size: 22px; font-weight: 600; }
+        .comment { margin-top: 12px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 16px; }
+        @media print {
+            .page { page-break-after: always; }
+        }
+    </style>
+</head>
+<body>
+${pagesHtml || '<div class="page"><em>No items</em></div>'}
+</body>
+</html>`;
+
+            const w = window.open("", "PRINT", "height=800,width=600");
+            if (!w) return;
+            w.document.write(html);
+            w.document.close();
+            w.focus();
+            w.print();
+        } catch (err) {
+            // eslint-disable-next-line no-console
+            console.error('Print failed', err);
+        }
+    };
+
     return (
         <div className="p-2 mb-2 border rounded bg-white" title={`Total: $${total.toFixed(2)}`}>
             <div className="text-sm">
@@ -68,6 +159,14 @@ function OrderCardBase({
                                 >
                                     Change Status
                                 </button>
+                                {status === 'pending' && (
+                                    <button
+                                        className="px-3 py-1 bg-amber-600 rounded text-white"
+                                        onClick={printByStation}
+                                    >
+                                        Print Stations
+                                    </button>
+                                )}
                             </>
                         )}
                     </div>

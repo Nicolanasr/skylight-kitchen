@@ -5,6 +5,7 @@ export type MenuItem = {
 	description?: string; // optional
 	category: string;
 	image_url: string;
+    station?: string; // optional: kitchen/prep station name
 };
 
 export type OrderItem = {
