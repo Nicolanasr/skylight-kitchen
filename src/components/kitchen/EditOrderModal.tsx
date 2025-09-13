@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { MenuItem, Order, OrderItem } from "@/types";
+import AddItemsModal from "@/components/kitchen/AddItemsModal";
 
 export type EditOrderModalProps = {
     isOpen: boolean;
@@ -49,27 +50,8 @@ export default function EditOrderModal({
 }: EditOrderModalProps) {
     if (!isOpen || !order) return null;
 
-    // New item picker state (like CreateOrderModal)
-    const [search, setSearch] = useState<string>("");
-    const categories = useMemo(() => {
-        const set = new Set<string>();
-        for (const m of menuItems) {
-            const cat = m?.category && m.category.trim() ? m.category.trim() : "Uncategorized";
-            set.add(cat);
-        }
-        return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
-    }, [menuItems]);
-    const [category, setCategory] = useState<string>("All");
-
-    const filtered = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        return menuItems.filter((m) => {
-            const mCat = m?.category && m.category.trim() ? m.category.trim() : "Uncategorized";
-            const catOk = category === "All" || mCat === category;
-            const qOk = !q || m.name.toLowerCase().includes(q);
-            return catOk && qOk;
-        });
-    }, [menuItems, category, search]);
+    // Add-items modal state
+    const [isAddOpen, setIsAddOpen] = useState<boolean>(false);
 
     const subtotal = editItems.reduce((sum, it) => {
         const m = menuItems.find((mm) => mm.id === it.menu_item_id);
@@ -131,7 +113,12 @@ export default function EditOrderModal({
                 <textarea className="w-full border rounded p-2 mb-3" value={editComment} onChange={(e) => setEditComment(e.target.value)} />
 
                 <div className="mb-3">
-                    <div className="font-medium mb-2">Items</div>
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="font-medium">Items</div>
+                        <button className="px-2 py-1 bg-blue-600 text-white rounded" onClick={() => setIsAddOpen(true)}>
+                            + Add Item
+                        </button>
+                    </div>
                     {editItems.length === 0 && <div className="text-sm text-gray-500">No items</div>}
                     {editItems.map((it, idx) => {
                         const menu = menuItems.find((m) => m.id === it.menu_item_id);
@@ -184,53 +171,6 @@ export default function EditOrderModal({
                     })}
                 </div>
 
-                {/* Add new items (picker like CreateOrderModal) */}
-                <div className="mb-4">
-                    <div className="font-medium mb-2">Add Items</div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
-                        <div className="md:col-span-1">
-                            <label className="block text-xs text-gray-600">Search</label>
-                            <input className="w-full border rounded p-2" placeholder="Search items" value={search} onChange={(e) => setSearch(e.target.value)} />
-                        </div>
-                        <div className="md:col-span-2">
-                            <label className="block text-xs text-gray-600">Categories</label>
-                            <div className="flex flex-wrap gap-2 mt-1">
-                                {categories.map((c) => (
-                                    <button
-                                        key={c}
-                                        className={`px-3 py-1 rounded border ${category === c ? 'bg-blue-600 text-white border-blue-600' : 'bg-white'}`}
-                                        onClick={() => setCategory(c)}
-                                    >
-                                        {c}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mt-2">
-                        {filtered.map((mi) => (
-                            <button
-                                key={mi.id}
-                                className="aspect-square border rounded p-2 flex flex-col items-center justify-center text-center hover:shadow"
-                                onClick={() => {
-                                    setEditItems((prev) => {
-                                        const idx = prev.findIndex((p) => p.menu_item_id === mi.id);
-                                        if (idx >= 0) return prev.map((p, i) => (i === idx ? { ...p, quantity: p.quantity + 1 } : p));
-                                        return [
-                                            ...prev,
-                                            { id: Date.now() + mi.id, menu_item_id: mi.id, quantity: 1, status: 'pending' } as OrderItem,
-                                        ];
-                                    });
-                                }}
-                            >
-                                <div className="font-medium line-clamp-2">{mi.name}</div>
-                                <div className="text-sm text-gray-600 mt-1">${mi.price.toFixed(2)}</div>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
                 <div className="grid grid-cols-2 gap-3">
                     <div>
                         <label className="block text-sm">Discount Amount ($)</label>
@@ -279,6 +219,29 @@ export default function EditOrderModal({
                     </button>
                 </div>
             </div>
+            <AddItemsModal
+                isOpen={isAddOpen}
+                onClose={() => setIsAddOpen(false)}
+                menuItems={menuItems}
+                onAdd={(cart) => {
+                    // Merge cart into current edit items
+                    setEditItems((prev) => {
+                        const next = [...prev];
+                        for (const idStr of Object.keys(cart)) {
+                            const id = Number(idStr);
+                            const qty = cart[id] ?? 0;
+                            if (qty <= 0) continue;
+                            const idx = next.findIndex((p) => p.menu_item_id === id);
+                            if (idx >= 0) {
+                                next[idx] = { ...next[idx], quantity: next[idx].quantity + qty };
+                            } else {
+                                next.push({ id: Date.now() + id, menu_item_id: id, quantity: qty, status: 'pending' });
+                            }
+                        }
+                        return next;
+                    });
+                }}
+            />
         </div>
     );
 }

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Order, OrderItem, MenuItem } from "@/types";
 import ReceiptModal from "@/components/kitchen/ReceiptModal";
+import ExtraModal from "@/components/kitchen/ExtraModal";
 import EditOrderModal from "@/components/kitchen/EditOrderModal";
 import PayModal from "@/components/kitchen/PayModal";
 import StatusSection from "@/components/kitchen/StatusSection";
@@ -64,6 +65,8 @@ export default function KitchenPage() {
     const [notifConnected, setNotifConnected] = useState<boolean>(false);
     // Create order modal
     const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
+    // Extra demo modal state
+    const [isExtraOpen, setIsExtraOpen] = useState<boolean>(false);
     // Change-all-status modal target
     const [changeOrder, setChangeOrder] = useState<Order | null>(null);
 
@@ -569,6 +572,9 @@ export default function KitchenPage() {
                     <button className="px-3 py-1 bg-green-600 text-white rounded" onClick={() => setIsCreateOpen(true)}>
                         Create Order
                     </button>
+                    <button className="px-3 py-1 bg-blue-600 text-white rounded" onClick={() => setIsExtraOpen(true)}>
+                        Open Modal
+                    </button>
                     <NotificationBell
                     items={notifications}
                     unreadIds={unreadIds}
@@ -588,6 +594,9 @@ export default function KitchenPage() {
             </div>
             <SearchBar value={searchQuery} onDebouncedChange={setSearchQuery} onClear={() => setSearchQuery("")} />
             <CreateOrderModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} menuItems={menuItems} setOrders={setOrders} />
+            <ExtraModal isOpen={isExtraOpen} onClose={() => setIsExtraOpen(false)} title="Extra Modal">
+                <p>You can customize this modal’s content later.</p>
+            </ExtraModal>
 
             {statuses.map((status) => (
                 <StatusSection
