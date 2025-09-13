@@ -300,7 +300,7 @@ export default function KitchenPage() {
 
         const items = Object.values(byItem)
             .map((v) => ({ ...v, lineTotal: v.unitPrice * v.quantity }))
-            .sort((a, b) => a.itemName.localeCompare(b.itemName));
+            .sort((a, b) => String(a.itemName ?? "").localeCompare(String(b.itemName ?? "")));
         const total = items.reduce((sum, it) => sum + it.lineTotal, 0);
 
         setReceiptItems(items);
@@ -326,7 +326,7 @@ export default function KitchenPage() {
                     .filter((o) => o.table_id === tableId && o.status === "served")
                     .map((o) => (o.name && o.name.trim() ? o.name.trim() : "Unknown"))
             )
-        ).sort((a, b) => a.localeCompare(b));
+        ).sort((a, b) => String(a ?? "").localeCompare(String(b ?? "")));
         setReceiptNamesForTable(names);
 
         // if exactly one name, auto-select it
@@ -357,7 +357,7 @@ export default function KitchenPage() {
                     .filter((o) => o.table_id === tableId && o.status === "served")
                     .map((o) => (o.name && o.name.trim() ? o.name.trim() : "Unknown"))
             )
-        ).sort((a, b) => a.localeCompare(b));
+        ).sort((a, b) => String(a ?? "").localeCompare(String(b ?? "")));
         setPayNames(names);
         setPaySelectedNames(new Set(names));
         setPaySelectAll(true);
@@ -510,9 +510,9 @@ export default function KitchenPage() {
             const nameMatch = (order.name || "").toLowerCase().includes(q);
             const itemMatch = (order.order_items || []).some((it) => (menuNameById.get(it.menu_item_id) || "").includes(q));
             const idMatch = orderIdMatch ? order.id === Number(orderIdMatch[1]) : false;
-            const tableMatch = tableMatchInfo ? order.table_id.toLowerCase() === tableMatchInfo[1].toLowerCase() : false;
-            return nameMatch || itemMatch || idMatch || tableMatch;
-        });
+            const tableMatch = tableMatchInfo ? String(order.table_id ?? "").toLowerCase() === tableMatchInfo[1].toLowerCase() : false;
+        return nameMatch || itemMatch || idMatch || tableMatch;
+    });
     }, [orders, q, menuNameById]);
 
     // Group orders by status → table → name

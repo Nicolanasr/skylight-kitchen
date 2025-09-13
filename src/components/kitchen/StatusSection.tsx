@@ -81,7 +81,7 @@ function StatusSectionBase({
     }
 
     const tableEntries = Object.entries(tablesMap).sort((a, b) =>
-        a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" })
+        String(a[0] ?? "").localeCompare(String(b[0] ?? ""), undefined, { numeric: true, sensitivity: "base" })
     );
 
     return (
@@ -94,7 +94,7 @@ function StatusSectionBase({
                 const content = (
                     <div className="mt-2">
                         {Object.entries(namesMap)
-                            .sort(([a], [b]) => a.localeCompare(b))
+                            .sort(([a], [b]) => String(a ?? "").localeCompare(String(b ?? "")))
                             .map(([name, nameOrders]) => (
                                 <NameGroup
                                     key={name}

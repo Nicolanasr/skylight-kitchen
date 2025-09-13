@@ -57,10 +57,10 @@ function OrderCardBase({
             }
 
             const pages = Object.entries(byStation)
-                .sort(([a], [b]) => a.localeCompare(b))
+                .sort(([a], [b]) => String(a ?? "").localeCompare(String(b ?? "")))
                 .map(([station, items]) => {
                     const rows = items
-                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")))
                         .map((row) => `
                             <tr>
                                 <td class="nm">${row.name}</td>

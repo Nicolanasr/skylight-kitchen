@@ -18,8 +18,14 @@ export default function CreateOrderModal({ isOpen, onClose, menuItems, setOrders
     const [search, setSearch] = useState<string>("");
     const categories = useMemo(() => {
         const set = new Set<string>();
-        for (const m of menuItems) set.add(m.category);
-        return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+        for (const m of menuItems) {
+            const cat = m?.category && m.category.trim() ? m.category.trim() : "Uncategorized";
+            set.add(cat);
+        }
+        return [
+            "All",
+            ...Array.from(set).sort((a, b) => a.localeCompare(b)),
+        ];
     }, [menuItems]);
     const [category, setCategory] = useState<string>("All");
 
@@ -29,7 +35,8 @@ export default function CreateOrderModal({ isOpen, onClose, menuItems, setOrders
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
         return menuItems.filter((m) => {
-            const catOk = category === "All" || m.category === category;
+            const mCat = m?.category && m.category.trim() ? m.category.trim() : "Uncategorized";
+            const catOk = category === "All" || mCat === category;
             const qOk = !q || m.name.toLowerCase().includes(q);
             return catOk && qOk;
         });
